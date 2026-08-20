@@ -74,6 +74,7 @@ function Index() {
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
+  const resolveDlc = useServerFn(resolveDlcContainer);
 
   const merge = (result: ScrapeResult) => {
     setItems((prev) => {
