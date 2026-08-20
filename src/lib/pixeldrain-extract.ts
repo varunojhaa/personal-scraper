@@ -7,6 +7,8 @@ export type PixeldrainItem = {
   pageUrl: string;
   directUrl: string;
   foundOn: string;
+  /** Real filename, looked up from the host when available. */
+  filename?: string;
   /** Recommended downloader for this host. */
   tool: "wget" | "idm";
 };
@@ -153,13 +155,18 @@ export function isFileHostUrl(url: string) {
  * downloads (resumable, correct filenames, referer + UA set for hosts that
  * need them).
  */
+function shellQuote(name: string) {
+  return `'${name.replace(/'/g, "'\\''")}'`;
+}
+
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
-  const lines = items.map((i) =>
-    i.host === "pixeldrain"
-      ? `wget --content-disposition -c "${i.directUrl}"`
-      : `wget --content-disposition -c --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`,
-  );
+  const lines = items.map((i) => {
+    const out = i.filename ? ` -O ${shellQuote(i.filename)}` : "";
+    return i.host === "pixeldrain"
+      ? `wget --content-disposition -c${out} "${i.directUrl}"`
+      : `wget --content-disposition -c${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+  });
   return `${lines.join("\n")}\n`;
 }
 

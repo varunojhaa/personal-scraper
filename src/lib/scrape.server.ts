@@ -14,8 +14,41 @@ async function fetchPage(url: string) {
     headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" },
   });
   const type = res.headers.get("content-type") ?? "";
-  const html = type.includes("html") || type.includes("text") || type === "" ? await res.text() : "";
+  const html =
+    type.includes("html") || type.includes("text") || type === "" ? await res.text() : "";
   return { ok: res.ok, status: res.status, finalUrl: res.url || url, html };
+}
+
+/**
+ * Ask Pixeldrain for the real filename of each file/list so wget can save it
+ * under the right name instead of the API path.
+ */
+async function namePixeldrainItems(found: Map<string, PixeldrainItem>) {
+  await Promise.all(
+    [...found.values()]
+      .filter((i) => i.host === "pixeldrain" && !i.filename)
+      .map(async (item) => {
+        const url =
+          item.kind === "file"
+            ? `https://pixeldrain.com/api/file/${item.id}/info`
+            : `https://pixeldrain.com/api/list/${item.id}`;
+        try {
+          const res = await fetch(url, {
+            headers: { "User-Agent": UA, Accept: "application/json" },
+          });
+          if (!res.ok) return;
+          const json = (await res.json()) as { name?: string; title?: string };
+          const name = (json.name ?? json.title ?? "").trim();
+          if (!name) return;
+          item.filename =
+            item.kind === "list"
+              ? `${name.replace(/[/\\]/g, "_")}.zip`
+              : name.replace(/[/\\]/g, "_");
+        } catch {
+          /* keep the default filename behaviour */
+        }
+      }),
+  );
 }
 
 export async function scrapeUrl(
@@ -71,6 +104,8 @@ export async function scrapeUrl(
     }
   }
 
+  await namePixeldrainItems(found);
+
   return {
     sourceUrl: first.finalUrl,
     items: [...found.values()],
@@ -118,7 +153,6 @@ export async function resolveDlc(
     );
   }
 
-
   extract(links.join("\n"), filename, found);
 
   for (const link of links) {
@@ -138,6 +172,8 @@ export async function resolveDlc(
       /* skip unreachable link */
     }
   }
+
+  await namePixeldrainItems(found);
 
   return {
     sourceUrl: filename,
@@ -178,6 +214,8 @@ export async function resolvePasted(input: string, label: string): Promise<Scrap
       }
     }
   }
+
+  await namePixeldrainItems(found);
 
   return {
     sourceUrl: label || (looksLikeSingleUrl ? trimmed : "pasted content"),
