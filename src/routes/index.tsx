@@ -47,15 +47,15 @@ const keyOf = (i: PixeldrainItem) => `${i.host}:${i.kind}:${i.id}`;
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder" },
+      { title: "Personal Scraper — wget / IDM download builder" },
       {
         name: "description",
         content:
-          "Scrape download links from any page, decrypt .dlc containers, pick the files you want and get a ready-to-run wget command or IDM batch list.",
+          "Personal Scraper: collect download links by scrape, manual paste or .dlc container, then export a ready-to-run wget command or IDM batch list for the files you select.",
       },
       {
         property: "og:title",
-        content: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder",
+        content: "Personal Scraper — wget / IDM download builder",
       },
       {
         property: "og:description",
