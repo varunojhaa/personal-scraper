@@ -626,6 +626,9 @@ function Index() {
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copiedIdm ? "Copied" : "Copy URLs"}
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => downloadText(idmList, "idm-urls.txt", "idm-urls.txt")}>
+                      <FileDown className="h-4 w-4" /> .txt
+                    </Button>
                     <Button variant="outline" size="sm" onClick={downloadEf2}>
                       <FileDown className="h-4 w-4" /> .ef2 file
                     </Button>
