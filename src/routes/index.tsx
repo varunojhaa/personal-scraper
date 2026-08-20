@@ -128,10 +128,8 @@ function Index() {
 
   const dlcMutation = useMutation({
     mutationFn: async (file: File) => {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      let bin = "";
-      for (const b of buf) bin += String.fromCharCode(b);
-      const base64 = btoa(bin);
+      // .dlc files are already base64 text — send the raw contents, don't re-encode.
+      const base64 = (await file.text()).trim();
       return resolveDlc({ data: { base64, filename: file.name, follow: true } });
     },
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
