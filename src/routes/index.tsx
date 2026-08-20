@@ -25,7 +25,13 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
 import { scrapePixeldrain, resolvePastedContent } from "@/lib/scrape.functions";
-import { buildWget, type PixeldrainItem, type ScrapeResult } from "@/lib/pixeldrain-extract";
+import {
+  buildWget,
+  buildIdmList,
+  buildIdmEf2,
+  type PixeldrainItem,
+  type ScrapeResult,
+} from "@/lib/pixeldrain-extract";
 
 export const Route = createFileRoute("/")({
   head: () => ({
