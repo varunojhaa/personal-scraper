@@ -93,7 +93,7 @@ export async function resolveDlc(
   const pagesScanned: string[] = [];
   const protectedPages = new Set<string>();
 
-  const res = await fetch("http://dcrypt.it/decrypt/paste", {
+  const res = await fetch("https://dcrypt.it/decrypt/paste", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA },
     body: new URLSearchParams({ content: base64Content }).toString(),
@@ -102,15 +102,21 @@ export async function resolveDlc(
 
   const json = (await res.json()) as {
     success?: { links?: string[] };
-    form_errors?: Record<string, unknown>;
+    form_errors?: Record<string, string[] | string>;
     error?: string;
   };
   const links = json.success?.links ?? [];
   if (!links.length) {
+    const formError = Object.values(json.form_errors ?? {})
+      .flat()
+      .join(" ");
     throw new Error(
-      json.error || "Could not decrypt that container — it may be expired or not a valid .dlc file",
+      json.error ||
+        formError ||
+        "Could not decrypt that container — it may be expired or not a valid .dlc file",
     );
   }
+
 
   extract(links.join("\n"), filename, found);
 
