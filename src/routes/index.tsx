@@ -534,8 +534,9 @@ function Index() {
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
               Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
-              inside lands in the file picker below, where you tick the parts you actually want
-              before copying the wget command.
+              inside lands in the file picker below, but only the <strong>Pixeldrain</strong> links
+              are ticked by default — other hosts stay deselected so you copy a pure Pixeldrain wget
+              command. Tick the rest manually if you want them.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Input
