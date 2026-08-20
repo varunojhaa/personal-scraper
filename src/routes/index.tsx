@@ -81,7 +81,7 @@ function Index() {
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
-  const [includeOptional, setIncludeOptional] = useState(true);
+  const [includeOptional, setIncludeOptional] = useState(false);
   /** Unselected item keys — everything is selected unless it's in here. */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
@@ -243,6 +243,17 @@ function Index() {
     a.click();
     URL.revokeObjectURL(href);
     toast.success("Exported downloads-idm.ef2");
+  };
+
+  const downloadText = (content: string, filename: string, label: string) => {
+    const blob = new Blob([content], { type: "text/plain" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(href);
+    toast.success(`Exported ${label}`);
   };
 
   const submitPaste = (label: string) => {
@@ -580,10 +591,15 @@ function Index() {
               <Card>
                 <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
                   <CardTitle className="text-base">wget command ({wgetItems.length})</CardTitle>
-                  <Button variant="secondary" size="sm" onClick={copy}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    {copied ? "Copied" : "Copy"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => downloadText(command, "wget-command.txt", "wget-command.txt")}>
+                      <FileDown className="h-4 w-4" /> .txt
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={copy}>
+                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <p className="mb-2 text-xs text-muted-foreground">
@@ -609,6 +625,9 @@ function Index() {
                     <Button variant="secondary" size="sm" onClick={copyIdm}>
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copiedIdm ? "Copied" : "Copy URLs"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => downloadText(idmList, "idm-urls.txt", "idm-urls.txt")}>
+                      <FileDown className="h-4 w-4" /> .txt
                     </Button>
                     <Button variant="outline" size="sm" onClick={downloadEf2}>
                       <FileDown className="h-4 w-4" /> .ef2 file
