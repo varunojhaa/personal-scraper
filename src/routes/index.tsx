@@ -148,6 +148,14 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
       merge(d);
+      // Only auto-select Pixeldrain links from a decrypted container; every
+      // other host in the .dlc is deselected so the wget command targets just
+      // the Pixeldrain files.
+      setExcluded((prevEx) => {
+        const next = new Set(prevEx);
+        for (const i of d.items) if (i.host !== "pixeldrain") next.add(keyOf(i));
+        return next;
+      });
       if (d.items.length === 0) {
         toast.error(
           d.protectedPages.length
@@ -156,8 +164,11 @@ function Index() {
         );
         return;
       }
+      const pd = d.items.filter((i) => i.host === "pixeldrain").length;
       toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container — tick the files you want`,
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} Pixeldrain selected, ${
+          d.items.length - pd
+        } other host${d.items.length - pd === 1 ? "" : "s"} hidden`,
       );
     },
   });
@@ -523,8 +534,9 @@ function Index() {
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
               Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
-              inside lands in the file picker below, where you tick the parts you actually want
-              before copying the wget command.
+              inside lands in the file picker below, but only the <strong>Pixeldrain</strong> links
+              are ticked by default — other hosts stay deselected so you copy a pure Pixeldrain wget
+              command. Tick the rest manually if you want them.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Input
