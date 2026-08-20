@@ -139,6 +139,21 @@ function Index() {
     },
   });
 
+  const quickWgetMutation = useMutation({
+    mutationFn: (link: string) => resolvePaste({ data: { content: link, label: "quick" } }),
+    onError: (e: Error) => toast.error(e.message || "Could not build the wget command"),
+    onSuccess: (d) => {
+      if (d.items.length === 0) {
+        toast.error("No Pixeldrain link found in that input");
+        return;
+      }
+      merge(d);
+      const cmd = buildWget(d.items);
+      void navigator.clipboard.writeText(cmd);
+      toast.success("wget command copied to clipboard");
+    },
+  });
+
   const dlcMutation = useMutation({
     mutationFn: async (file: File) => {
       // .dlc files are already base64 text — send the raw contents, don't re-encode.
