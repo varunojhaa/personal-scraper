@@ -446,23 +446,30 @@ function Index() {
             <Card>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
                 <CardTitle className="text-base">Download tool</CardTitle>
-                <div className="flex items-center gap-1 rounded-md border border-border p-1">
-                  {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
-                    <Button
-                      key={m}
-                      size="sm"
-                      variant={mode === m ? "default" : "ghost"}
-                      onClick={() => setMode(m)}
-                    >
-                      {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
-                    </Button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={onlyFuckingfast} onCheckedChange={setOnlyFuckingfast} />
+                    FuckingFast only
+                  </label>
+                  <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                    {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
+                      <Button
+                        key={m}
+                        size="sm"
+                        variant={mode === m ? "default" : "ghost"}
+                        onClick={() => setMode(m)}
+                      >
+                        {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  Auto sends Pixeldrain links to wget and every other hoster (FuckingFast,
-                  DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list.
+                  {onlyFuckingfast
+                    ? "Filtered to FuckingFast links only — every other hoster is hidden from the export lists."
+                    : "Auto sends Pixeldrain links to wget and every other hoster (FuckingFast, DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list."}
                 </p>
               </CardContent>
             </Card>
