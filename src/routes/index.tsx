@@ -245,6 +245,17 @@ function Index() {
     toast.success("Exported downloads-idm.ef2");
   };
 
+  const downloadText = (content: string, filename: string, label: string) => {
+    const blob = new Blob([content], { type: "text/plain" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(href);
+    toast.success(`Exported ${label}`);
+  };
+
   const submitPaste = (label: string) => {
     if (pasteValue.trim().length < 3) return;
     pasteMutation.mutate({ content: pasteValue, label });
