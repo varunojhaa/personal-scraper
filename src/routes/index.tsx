@@ -158,10 +158,11 @@ function Index() {
     },
   });
 
-  const filteredItems = useMemo(
-    () => (onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items),
-    [items, onlyFuckingfast],
-  );
+  const filteredItems = useMemo(() => {
+    let out = onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items;
+    if (!includeOptional) out = out.filter((i) => !i.optional);
+    return out;
+  }, [items, onlyFuckingfast, includeOptional]);
   const wgetItems = useMemo(
     () =>
       mode === "idm"
