@@ -543,6 +543,10 @@ function Index() {
                 </div>
               </CardHeader>
               <CardContent className="grid gap-2">
+                <div
+                  className="grid gap-2 overflow-y-auto pr-1"
+                  style={{ maxHeight: "calc(7 * 44px + 6 * 8px)" }}
+                >
                 {visibleItems.map((i) => {
                   const k = keyOf(i);
                   const checked = !excluded.has(k);
