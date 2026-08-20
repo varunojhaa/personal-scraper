@@ -106,6 +106,9 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Scrape failed"),
     onSuccess: (d) => {
       merge(d);
+      // FitGirl repacks are mirrored on three hosters; FuckingFast is the
+      // fastest, so default to FuckingFast-only when scraping a FitGirl page.
+      if (/fitgirl-repacks\.site/i.test(d.sourceUrl)) setOnlyFuckingfast(true);
       toast.success(
         `${d.items.length} link${d.items.length === 1 ? "" : "s"} found${
           d.protectedPages.length ? ` · ${d.protectedPages.length} page(s) need you` : ""
