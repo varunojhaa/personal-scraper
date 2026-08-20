@@ -75,6 +75,7 @@ function Index() {
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
+  const [onlyFuckingfast, setOnlyFuckingfast] = useState(false);
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -153,13 +154,27 @@ function Index() {
     },
   });
 
+  const filteredItems = useMemo(
+    () => (onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items),
+    [items, onlyFuckingfast],
+  );
   const wgetItems = useMemo(
-    () => (mode === "idm" ? [] : mode === "wget" ? items : items.filter((i) => i.tool === "wget")),
-    [items, mode],
+    () =>
+      mode === "idm"
+        ? []
+        : mode === "wget"
+          ? filteredItems
+          : filteredItems.filter((i) => i.tool === "wget"),
+    [filteredItems, mode],
   );
   const idmItems = useMemo(
-    () => (mode === "wget" ? [] : mode === "idm" ? items : items.filter((i) => i.tool === "idm")),
-    [items, mode],
+    () =>
+      mode === "wget"
+        ? []
+        : mode === "idm"
+          ? filteredItems
+          : filteredItems.filter((i) => i.tool === "idm"),
+    [filteredItems, mode],
   );
   const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
@@ -431,23 +446,30 @@ function Index() {
             <Card>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
                 <CardTitle className="text-base">Download tool</CardTitle>
-                <div className="flex items-center gap-1 rounded-md border border-border p-1">
-                  {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
-                    <Button
-                      key={m}
-                      size="sm"
-                      variant={mode === m ? "default" : "ghost"}
-                      onClick={() => setMode(m)}
-                    >
-                      {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
-                    </Button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={onlyFuckingfast} onCheckedChange={setOnlyFuckingfast} />
+                    FuckingFast only
+                  </label>
+                  <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                    {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
+                      <Button
+                        key={m}
+                        size="sm"
+                        variant={mode === m ? "default" : "ghost"}
+                        onClick={() => setMode(m)}
+                      >
+                        {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  Auto sends Pixeldrain links to wget and every other hoster (FuckingFast,
-                  DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list.
+                  {onlyFuckingfast
+                    ? "Filtered to FuckingFast links only — every other hoster is hidden from the export lists."
+                    : "Auto sends Pixeldrain links to wget and every other hoster (FuckingFast, DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list."}
                 </p>
               </CardContent>
             </Card>
@@ -508,11 +530,16 @@ function Index() {
             )}
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Collected links</CardTitle>
+              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardTitle className="text-base">
+                  Collected links ({filteredItems.length})
+                </CardTitle>
+                {onlyFuckingfast && (
+                  <Badge variant="secondary">FuckingFast only</Badge>
+                )}
               </CardHeader>
               <CardContent className="grid gap-2">
-                {items.map((i) => (
+                {filteredItems.map((i) => (
                   <div
                     key={`${i.host}-${i.kind}-${i.id}`}
                     className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
