@@ -666,7 +666,9 @@ function Index() {
                 <CardContent>
                   <p className="mb-2 text-xs text-muted-foreground">
                     Copy this command and paste it into a terminal — it downloads every selected
-                    file in one line, with resume and correct filenames.
+                    file in the background, so it keeps running after you close the session.
+                    Progress goes to wget.log (tail -f wget.log).
+
                   </p>
                   <Textarea
                     readOnly
