@@ -311,6 +311,22 @@ function Index() {
   return (
     <main className="min-h-screen bg-background">
       <Toaster />
+      <div
+        role="alert"
+        className="border-b border-amber-500/40 bg-amber-500/10 text-amber-200"
+      >
+        <div className="mx-auto flex max-w-4xl items-start gap-2 px-6 py-2.5 text-sm">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <strong>Not a universal scraper.</strong> This tool only supports
+            the currently detected sites — Pixeldrain links and the FuckingFast
+            mirrors used on fitgirl-repacks.site. Other pages, including
+            captcha-protected hosts like filecrypt and viewcrate, are not
+            scraped directly; use a .dlc container or paste the link manually
+            instead.
+          </p>
+        </div>
+      </div>
       <div className="border-b border-border" style={{ backgroundImage: "var(--gradient-hero)" }}>
         <div className="mx-auto max-w-4xl px-6 py-16">
           <Badge variant="outline" className="mb-4 gap-1.5">
