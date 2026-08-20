@@ -76,6 +76,7 @@ function Index() {
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
   const [onlyFuckingfast, setOnlyFuckingfast] = useState(false);
+  const [includeOptional, setIncludeOptional] = useState(true);
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -105,6 +106,9 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Scrape failed"),
     onSuccess: (d) => {
       merge(d);
+      // FitGirl repacks are mirrored on three hosters; FuckingFast is the
+      // fastest, so default to FuckingFast-only when scraping a FitGirl page.
+      if (/fitgirl-repacks\.site/i.test(d.sourceUrl)) setOnlyFuckingfast(true);
       toast.success(
         `${d.items.length} link${d.items.length === 1 ? "" : "s"} found${
           d.protectedPages.length ? ` · ${d.protectedPages.length} page(s) need you` : ""
@@ -154,10 +158,11 @@ function Index() {
     },
   });
 
-  const filteredItems = useMemo(
-    () => (onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items),
-    [items, onlyFuckingfast],
-  );
+  const filteredItems = useMemo(() => {
+    let out = onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items;
+    if (!includeOptional) out = out.filter((i) => !i.optional);
+    return out;
+  }, [items, onlyFuckingfast, includeOptional]);
   const wgetItems = useMemo(
     () =>
       mode === "idm"
@@ -451,6 +456,10 @@ function Index() {
                     <Switch checked={onlyFuckingfast} onCheckedChange={setOnlyFuckingfast} />
                     FuckingFast only
                   </label>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
+                    Include optional content
+                  </label>
                   <div className="flex items-center gap-1 rounded-md border border-border p-1">
                     {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
                       <Button
@@ -470,6 +479,7 @@ function Index() {
                   {onlyFuckingfast
                     ? "Filtered to FuckingFast links only — every other hoster is hidden from the export lists."
                     : "Auto sends Pixeldrain links to wget and every other hoster (FuckingFast, DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list."}
+                  {!includeOptional && " · optional content (bonus/selective files) is hidden."}
                 </p>
               </CardContent>
             </Card>
@@ -555,6 +565,7 @@ function Index() {
                     </a>
                     <div className="flex shrink-0 items-center gap-2">
                       <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
+                      {i.optional && <Badge variant="secondary">optional</Badge>}
                       <Badge variant={i.tool === "wget" ? "default" : "secondary"}>{i.tool}</Badge>
                     </div>
                   </div>
