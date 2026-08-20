@@ -1,9 +1,14 @@
+export type HostKey = "pixeldrain" | "fuckingfast" | "datanodes" | "filekeeper";
+
 export type PixeldrainItem = {
   id: string;
   kind: "file" | "list";
+  host: HostKey;
   pageUrl: string;
   directUrl: string;
   foundOn: string;
+  /** Recommended downloader for this host. */
+  tool: "wget" | "idm";
 };
 
 export type ScrapeResult = {
@@ -12,6 +17,13 @@ export type ScrapeResult = {
   pagesScanned: string[];
   protectedPages: string[];
   scrapedAt: string;
+};
+
+export const HOST_LABELS: Record<HostKey, string> = {
+  pixeldrain: "Pixeldrain",
+  fuckingfast: "FuckingFast",
+  datanodes: "DataNodes",
+  filekeeper: "FileKeeper",
 };
 
 export const UA =
@@ -30,26 +42,73 @@ export const PROTECTED_HOSTS = [
   "adf.ly",
 ];
 
+type Rule = {
+  re: RegExp;
+  host: HostKey;
+  kind: "file" | "list";
+  page: (id: string) => string;
+  direct: (id: string) => string;
+  tool: "wget" | "idm";
+};
+
+const RULES: Rule[] = [
+  {
+    re: /pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]{4,12})/g,
+    host: "pixeldrain",
+    kind: "file",
+    page: (id) => `https://pixeldrain.com/u/${id}`,
+    direct: (id) => `https://pixeldrain.com/api/file/${id}?download`,
+    tool: "wget",
+  },
+  {
+    re: /pixeldrain\.com\/l\/([A-Za-z0-9]{4,12})/g,
+    host: "pixeldrain",
+    kind: "list",
+    page: (id) => `https://pixeldrain.com/l/${id}`,
+    direct: (id) => `https://pixeldrain.com/api/list/${id}/zip`,
+    tool: "wget",
+  },
+  {
+    re: /fuckingfast\.(?:co|net)\/([A-Za-z0-9]{4,40}(?:#[^\s"'<>]{0,200})?)/g,
+    host: "fuckingfast",
+    kind: "file",
+    page: (id) => `https://fuckingfast.co/${id}`,
+    direct: (id) => `https://fuckingfast.co/${id}`,
+    tool: "idm",
+  },
+  {
+    re: /datanodes\.to\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/g,
+    host: "datanodes",
+    kind: "file",
+    page: (id) => `https://datanodes.to/${id}`,
+    direct: (id) => `https://datanodes.to/${id}`,
+    tool: "idm",
+  },
+  {
+    re: /filekeeper\.net\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/g,
+    host: "filekeeper",
+    kind: "file",
+    page: (id) => `https://filekeeper.net/${id}`,
+    direct: (id) => `https://filekeeper.net/${id}`,
+    tool: "idm",
+  },
+];
+
 export function extract(html: string, foundOn: string, into: Map<string, PixeldrainItem>) {
-  const patterns: Array<{ re: RegExp; kind: "file" | "list" }> = [
-    { re: /pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]{4,12})/g, kind: "file" },
-    { re: /pixeldrain\.com\/l\/([A-Za-z0-9]{4,12})/g, kind: "list" },
-  ];
-  for (const { re, kind } of patterns) {
-    for (const m of html.matchAll(re)) {
-      const id = m[1] as string;
-      const key = `${kind}:${id}`;
+  for (const rule of RULES) {
+    for (const m of html.matchAll(rule.re)) {
+      const id = (m[1] ?? "").replace(/[.,;)\]]+$/, "");
+      if (!id) continue;
+      const key = `${rule.host}:${rule.kind}:${id}`;
       if (into.has(key)) continue;
       into.set(key, {
         id,
-        kind,
+        kind: rule.kind,
+        host: rule.host,
         foundOn,
-        pageUrl:
-          kind === "file" ? `https://pixeldrain.com/u/${id}` : `https://pixeldrain.com/l/${id}`,
-        directUrl:
-          kind === "file"
-            ? `https://pixeldrain.com/api/file/${id}?download`
-            : `https://pixeldrain.com/api/list/${id}/zip`,
+        pageUrl: rule.page(id),
+        directUrl: rule.direct(id),
+        tool: rule.tool,
       });
     }
   }
@@ -84,8 +143,24 @@ export function isProtected(url: string) {
   }
 }
 
+/** Every item this file host recognises. */
+export function isFileHostUrl(url: string) {
+  return /(?:pixeldrain\.com|fuckingfast\.(?:co|net)|datanodes\.to|filekeeper\.net)/i.test(url);
+}
+
+/**
+ * One copy-pasteable shell block: paste it into a terminal and every file
+ * downloads (resumable, correct filenames, referer + UA set for hosts that
+ * need them).
+ */
 export function buildWget(items: PixeldrainItem[]) {
-  return items.map((i) => `wget --content-disposition -c "${i.directUrl}"`).join("\n");
+  if (!items.length) return "";
+  const lines = items.map((i) =>
+    i.host === "pixeldrain"
+      ? `wget --content-disposition -c "${i.directUrl}"`
+      : `wget --content-disposition -c --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`,
+  );
+  return `${lines.join("\n")}\n`;
 }
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
@@ -96,6 +171,6 @@ export function buildIdmList(items: PixeldrainItem[]) {
 /** IDM .ef2 export format — File › Import › From IDM export file. */
 export function buildIdmEf2(items: PixeldrainItem[]) {
   return items
-    .map((i) => `<\n${i.directUrl}\nreferer: ${i.pageUrl}\n>`)
+    .map((i) => `<\n${i.directUrl}\nreferer: ${i.pageUrl}\nUser-Agent: ${UA}\n>`)
     .join("\n");
 }
