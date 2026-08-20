@@ -206,17 +206,29 @@ function shellQuote(name: string) {
 
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
-  // Common flags: retry on stalls instead of hanging forever, and resume.
-  const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5`;
+  // Common flags: retry on stalls instead of hanging forever, resume partial
+  // files, and force connection close per request. --no-http-keep-alive is
+  // essential: pixeldrain's 416 "already fully retrieved" response keeps the
+  // connection open and wget hangs waiting on it (verified against the live
+  // API — without this flag the command never returns and you must Ctrl+C).
+  const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5 --no-http-keep-alive`;
   const segments = items.map((i) => {
     const out = i.filename ? ` -O ${shellQuote(i.filename)}` : "";
+    // --content-disposition is only needed to name the output file when we
+    // don't pass -O. It also triggers the 416 hang, so we drop it whenever we
+    // already have a resolved filename (which is the normal case: pixeldrain
+    // names come from the API, the other hosts embed them in the URL).
+    const cd = i.filename ? "" : " --content-disposition";
     const cmd =
       i.host === "pixeldrain"
-        ? `wget --content-disposition ${common}${out} "${i.directUrl}"`
-        : `wget --content-disposition ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+        ? `wget${cd} ${common}${out} "${i.directUrl}"`
+        : `wget${cd} ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
     // Finished files leave a .done marker, so a re-run skips them instead of
     // re-opening a connection that stalls and needs Ctrl+C. Partial files have
-    // no marker, so they still resume with -c.
+    // no marker, so they still resume with -c. Because the 416 path now exits
+    // 0 (thanks to --no-http-keep-alive), a file that finished without a
+    // marker self-heals: wget returns, `touch .done` runs, and it's skipped
+    // forever after.
     if (!i.filename) return cmd;
     const done = shellQuote(`${i.filename}.done`);
     return `[ -f ${done} ] || { ${cmd} && touch ${done}; }`;
