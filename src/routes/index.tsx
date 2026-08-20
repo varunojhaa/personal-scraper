@@ -178,16 +178,11 @@ function Index() {
   });
 
   /**
-   * FitGirl mirrors every part on three hosters. FuckingFast is the fastest, so
-   * whenever a FitGirl page is in the mix we always keep FuckingFast only.
+   * FuckingFast links only come from FitGirl repacks in this app, so any
+   * FuckingFast item means we're in FitGirl mode: FuckingFast mirrors only,
+   * IDM export, and the optional-content toggle becomes available.
    */
-  const fitgirlMode = useMemo(
-    () =>
-      items.some(
-        (i) => i.host === "fuckingfast" && /fitgirl-repacks\.site/i.test(i.foundOn ?? ""),
-      ) || (items.some((i) => i.host === "fuckingfast") && items.some((i) => i.host !== "fuckingfast" && i.host !== "pixeldrain")),
-    [items],
-  );
+  const fitgirlMode = useMemo(() => items.some((i) => i.host === "fuckingfast"), [items]);
 
   /** A single Pixeldrain link present in the top URL input only. */
   const singlePdLink = useMemo(() => {
