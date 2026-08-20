@@ -2,13 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Download, Link2, Loader2, Copy, Check, Terminal } from "lucide-react";
+import { Download, Link2, Loader2, Copy, Check, Terminal, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
 import { scrapePixeldrain, type PixeldrainItem } from "@/lib/scrape.functions";
@@ -46,17 +47,20 @@ function buildWget(items: PixeldrainItem[]) {
 
 function Index() {
   const [url, setUrl] = useState("");
+  const [deep, setDeep] = useState(true);
   const [copied, setCopied] = useState(false);
   const scrape = useServerFn(scrapePixeldrain);
 
   const mutation = useMutation({
-    mutationFn: (target: string) => scrape({ data: { url: target } }),
+    mutationFn: (target: string) => scrape({ data: { url: target, deep } }),
     onError: (e: Error) => toast.error(e.message || "Scrape failed"),
     onSuccess: (d) =>
       toast.success(`Found ${d.items.length} Pixeldrain link${d.items.length === 1 ? "" : "s"}`),
   });
 
   const items = mutation.data?.items ?? [];
+  const blocked = mutation.data?.protectedPages ?? [];
+  const scanned = mutation.data?.pagesScanned ?? [];
   const command = useMemo(() => buildWget(items), [items]);
 
   const copy = async () => {
@@ -81,8 +85,8 @@ function Index() {
             Pixeldrain link scraper
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Give it a page link. It pulls out every Pixeldrain file and list, then builds one
-            wget command you can paste straight into a terminal.
+            Paste any page. It scans that page and, with deep scan on, follows its sub-pages and
+            redirects to collect every Pixeldrain file or list, then builds one wget command.
           </p>
 
           <form
@@ -115,15 +119,57 @@ function Index() {
               )}
             </Button>
           </form>
+
+          <label className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
+            <Switch checked={deep} onCheckedChange={setDeep} />
+            Deep scan — follow sub-pages and redirects (up to 20 pages, slower)
+          </label>
         </div>
       </div>
 
+
       <div className="mx-auto max-w-4xl px-6 py-12">
+        {mutation.isSuccess && (
+          <p className="mb-6 text-xs text-muted-foreground">
+            Scanned {scanned.length} page{scanned.length === 1 ? "" : "s"}.
+          </p>
+        )}
+
+        {blocked.length > 0 && (
+          <Card className="mb-6 border-destructive/40">
+            <CardHeader className="flex-row items-center gap-2 space-y-0">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              <CardTitle className="text-base">Captcha-protected containers skipped</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <p className="text-sm text-muted-foreground">
+                These pages (filecrypt, viewcrate and similar) hide their links behind a captcha or
+                JS challenge, so they can&apos;t be read automatically. Open each one, solve the
+                captcha, then paste the resulting page URL back here.
+              </p>
+              {blocked.map((b) => (
+                <a
+                  key={b}
+                  href={b}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate text-sm text-accent hover:underline"
+                  style={{ fontFamily: "var(--font-mono-stack)" }}
+                >
+                  {b}
+                </a>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {mutation.isSuccess && items.length === 0 && (
           <p className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
             No Pixeldrain links found on that page.
           </p>
         )}
+
+
 
         {items.length > 0 && (
           <div className="grid gap-6">
