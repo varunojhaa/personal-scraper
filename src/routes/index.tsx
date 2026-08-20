@@ -162,6 +162,21 @@ function Index() {
     },
   });
 
+  const quickWgetMutation = useMutation({
+    mutationFn: (link: string) => resolvePaste({ data: { content: link, label: "quick" } }),
+    onError: (e: Error) => toast.error(e.message || "Could not build the wget command"),
+    onSuccess: (d) => {
+      if (d.items.length === 0) {
+        toast.error("No Pixeldrain link found in that input");
+        return;
+      }
+      merge(d);
+      const cmd = buildWget(d.items);
+      void navigator.clipboard.writeText(cmd);
+      toast.success("wget command copied to clipboard");
+    },
+  });
+
   /**
    * FitGirl mirrors every part on three hosters. FuckingFast is the fastest, so
    * whenever a FitGirl page is in the mix we always keep FuckingFast only.
@@ -174,6 +189,14 @@ function Index() {
     [items],
   );
 
+  /** A single Pixeldrain link present in the top URL input only. */
+  const singlePdLink = useMemo(() => {
+    const RX = /https?:\/\/(?:www\.)?pixeldrain\.com\/[ul]\/[A-Za-z0-9]+/gi;
+    const t = url.trim();
+    if (!t) return null;
+    const matches = t.match(RX);
+    return matches && matches.length === 1 ? matches[0] : null;
+  }, [url]);
 
   const visibleItems = useMemo(() => {
     let out = fitgirlMode
@@ -338,6 +361,27 @@ function Index() {
               )}
             </Button>
           </form>
+
+          {singlePdLink && (
+            <div className="mt-3 flex items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                Single Pixeldrain link detected — copy a ready wget command for it.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={quickWgetMutation.isPending}
+                onClick={() => quickWgetMutation.mutate(singlePdLink)}
+              >
+                {quickWgetMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                Copy wget command
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
