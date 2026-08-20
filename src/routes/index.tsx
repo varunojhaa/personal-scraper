@@ -129,11 +129,47 @@ function Index() {
 
 
       <div className="mx-auto max-w-4xl px-6 py-12">
+        {mutation.isSuccess && (
+          <p className="mb-6 text-xs text-muted-foreground">
+            Scanned {scanned.length} page{scanned.length === 1 ? "" : "s"}.
+          </p>
+        )}
+
+        {blocked.length > 0 && (
+          <Card className="mb-6 border-destructive/40">
+            <CardHeader className="flex-row items-center gap-2 space-y-0">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              <CardTitle className="text-base">Captcha-protected containers skipped</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <p className="text-sm text-muted-foreground">
+                These pages (filecrypt, viewcrate and similar) hide their links behind a captcha or
+                JS challenge, so they can&apos;t be read automatically. Open each one, solve the
+                captcha, then paste the resulting page URL back here.
+              </p>
+              {blocked.map((b) => (
+                <a
+                  key={b}
+                  href={b}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate text-sm text-accent hover:underline"
+                  style={{ fontFamily: "var(--font-mono-stack)" }}
+                >
+                  {b}
+                </a>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {mutation.isSuccess && items.length === 0 && (
           <p className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
             No Pixeldrain links found on that page.
           </p>
         )}
+
+
 
         {items.length > 0 && (
           <div className="grid gap-6">
