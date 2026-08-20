@@ -2,13 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Download, Link2, Loader2, Copy, Check, Terminal } from "lucide-react";
+import { Download, Link2, Loader2, Copy, Check, Terminal, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
 import { scrapePixeldrain, type PixeldrainItem } from "@/lib/scrape.functions";
