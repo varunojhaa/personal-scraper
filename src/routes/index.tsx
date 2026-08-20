@@ -147,14 +147,22 @@ function Index() {
     },
   });
 
-  const command = useMemo(() => buildWget(items), [items]);
-  const idmList = useMemo(() => buildIdmList(items), [items]);
+  const wgetItems = useMemo(
+    () => (mode === "idm" ? [] : mode === "wget" ? items : items.filter((i) => i.tool === "wget")),
+    [items, mode],
+  );
+  const idmItems = useMemo(
+    () => (mode === "wget" ? [] : mode === "idm" ? items : items.filter((i) => i.tool === "idm")),
+    [items, mode],
+  );
+  const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
+  const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
   const openMe = pending.filter((p) => p.status === "open-me");
 
   const copy = async () => {
     await navigator.clipboard.writeText(command);
     setCopied(true);
-    toast.success("Command copied");
+    toast.success("Command copied — paste it in a terminal to grab everything");
     setTimeout(() => setCopied(false), 1600);
   };
 
