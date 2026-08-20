@@ -342,7 +342,7 @@ function Index() {
           </p>
 
           <form
-            className="mt-8 flex flex-col gap-3 sm:flex-row"
+            className="mt-8 flex flex-col gap-3 rounded-2xl border-2 border-primary/50 bg-card/60 p-3 shadow-[var(--shadow-glow)] backdrop-blur sm:flex-row"
             onSubmit={(e) => {
               e.preventDefault();
               startScrape();
@@ -356,10 +356,15 @@ function Index() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com/page-with-links"
-                className="h-12 pl-9"
+                className="h-12 border-primary/40 pl-9 text-base ring-primary/30"
               />
             </div>
-            <Button type="submit" size="lg" disabled={scrapeMutation.isPending} className="h-12">
+            <Button
+              type="submit"
+              size="lg"
+              disabled={scrapeMutation.isPending}
+              className="h-12 px-7 text-base shadow-[var(--shadow-glow)]"
+            >
               {scrapeMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" /> Scraping
