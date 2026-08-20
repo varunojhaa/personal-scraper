@@ -81,7 +81,7 @@ function Index() {
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
-  const [includeOptional, setIncludeOptional] = useState(true);
+  const [includeOptional, setIncludeOptional] = useState(false);
   /** Unselected item keys — everything is selected unless it's in here. */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
