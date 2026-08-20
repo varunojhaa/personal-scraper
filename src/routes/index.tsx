@@ -33,9 +33,12 @@ import {
   buildWget,
   buildIdmList,
   buildIdmEf2,
+  HOST_LABELS,
   type PixeldrainItem,
   type ScrapeResult,
 } from "@/lib/pixeldrain-extract";
+
+type ToolMode = "auto" | "wget" | "idm";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -71,6 +74,7 @@ function Index() {
   const [scannedCount, setScannedCount] = useState(0);
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
+  const [mode, setMode] = useState<ToolMode>("auto");
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -143,7 +147,9 @@ function Index() {
         );
         return;
       }
-      toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container`);
+      toast.success(
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container`,
+      );
     },
   });
 
@@ -174,7 +180,7 @@ function Index() {
   };
 
   const downloadEf2 = () => {
-    const blob = new Blob([buildIdmEf2(items)], { type: "text/plain" });
+    const blob = new Blob([buildIdmEf2(idmItems)], { type: "text/plain" });
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
@@ -423,51 +429,83 @@ function Index() {
         {items.length > 0 && (
           <div className="grid gap-6">
             <Card>
-              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-                <CardTitle className="text-base">wget command ({items.length})</CardTitle>
-                <Button variant="secondary" size="sm" onClick={copy}>
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copied ? "Copied" : "Copy"}
-                </Button>
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+                <CardTitle className="text-base">Download tool</CardTitle>
+                <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                  {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
+                    <Button
+                      key={m}
+                      size="sm"
+                      variant={mode === m ? "default" : "ghost"}
+                      onClick={() => setMode(m)}
+                    >
+                      {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
+                    </Button>
+                  ))}
+                </div>
               </CardHeader>
               <CardContent>
-                <Textarea
-                  readOnly
-                  value={command}
-                  rows={Math.min(items.length + 1, 14)}
-                  className="resize-y text-xs"
-                  style={{ fontFamily: "var(--font-mono-stack)" }}
-                />
+                <p className="text-xs text-muted-foreground">
+                  Auto sends Pixeldrain links to wget and every other hoster (FuckingFast,
+                  DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list.
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-                <CardTitle className="text-base">IDM download list ({items.length})</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button variant="secondary" size="sm" onClick={copyIdm}>
-                    {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    {copiedIdm ? "Copied" : "Copy URLs"}
+            {wgetItems.length > 0 && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                  <CardTitle className="text-base">wget command ({wgetItems.length})</CardTitle>
+                  <Button variant="secondary" size="sm" onClick={copy}>
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copied ? "Copied" : "Copy"}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={downloadEf2}>
-                    <FileDown className="h-4 w-4" /> .ef2 file
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                <p className="text-xs text-muted-foreground">
-                  Copy the URLs, then in IDM use Tasks → Add Batch Download From Clipboard. Or grab
-                  the .ef2 file and use File → Import → From IDM export file.
-                </p>
-                <Textarea
-                  readOnly
-                  value={idmList}
-                  rows={Math.min(items.length + 1, 14)}
-                  className="resize-y text-xs"
-                  style={{ fontFamily: "var(--font-mono-stack)" }}
-                />
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Copy this whole block and paste it into a terminal — it downloads every file,
+                    with resume and correct filenames.
+                  </p>
+                  <Textarea
+                    readOnly
+                    value={command}
+                    rows={Math.min(wgetItems.length + 2, 14)}
+                    className="resize-y text-xs"
+                    style={{ fontFamily: "var(--font-mono-stack)" }}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {idmItems.length > 0 && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                  <CardTitle className="text-base">IDM download list ({idmItems.length})</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={copyIdm}>
+                      {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copiedIdm ? "Copied" : "Copy URLs"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={downloadEf2}>
+                      <FileDown className="h-4 w-4" /> .ef2 file
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Copy the URLs, then in IDM use Tasks → Add Batch Download From Clipboard. Or
+                    grab the .ef2 file and use File → Import → From IDM export file.
+                  </p>
+                  <Textarea
+                    readOnly
+                    value={idmList}
+                    rows={Math.min(idmItems.length + 1, 14)}
+                    className="resize-y text-xs"
+                    style={{ fontFamily: "var(--font-mono-stack)" }}
+                  />
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
@@ -476,7 +514,7 @@ function Index() {
               <CardContent className="grid gap-2">
                 {items.map((i) => (
                   <div
-                    key={`${i.kind}-${i.id}`}
+                    key={`${i.host}-${i.kind}-${i.id}`}
                     className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
                   >
                     <a
@@ -488,7 +526,10 @@ function Index() {
                     >
                       {i.pageUrl}
                     </a>
-                    <Badge variant={i.kind === "list" ? "secondary" : "default"}>{i.kind}</Badge>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
+                      <Badge variant={i.tool === "wget" ? "default" : "secondary"}>{i.tool}</Badge>
+                    </div>
                   </div>
                 ))}
               </CardContent>

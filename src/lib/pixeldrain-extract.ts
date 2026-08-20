@@ -170,5 +170,7 @@ export function buildIdmList(items: PixeldrainItem[]) {
 
 /** IDM .ef2 export format — File › Import › From IDM export file. */
 export function buildIdmEf2(items: PixeldrainItem[]) {
-  return items.map((i) => `<\n${i.directUrl}\nreferer: ${i.pageUrl}\nUser-Agent: ${UA}\n>`).join("\n");
+  return items
+    .map((i) => `<\n${i.directUrl}\nreferer: ${i.pageUrl}\nUser-Agent: ${UA}\n>`)
+    .join("\n");
 }
