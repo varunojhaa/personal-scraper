@@ -325,9 +325,21 @@ function Index() {
       <Toaster />
       <div className="border-b border-border" style={{ backgroundImage: "var(--gradient-hero)" }}>
         <div className="mx-auto max-w-4xl px-6 py-16">
-          <Badge variant="outline" className="mb-4 gap-1.5">
-            <Terminal className="h-3.5 w-3.5" /> personal
-          </Badge>
+          <div className="mb-4 flex items-center gap-2">
+            <Badge variant="outline" className="gap-1.5">
+              <Terminal className="h-3.5 w-3.5" /> personal
+            </Badge>
+            <Button variant="outline" size="sm" asChild>
+              <a
+                href="https://github.com/varunojhaa/personal-scraper"
+                target="_blank"
+                rel="noreferrer"
+                className="gap-1.5"
+              >
+                <Github className="h-3.5 w-3.5" /> GitHub
+              </a>
+            </Button>
+          </div>
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
             Personal Scraper
           </h1>
