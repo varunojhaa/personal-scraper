@@ -3,6 +3,7 @@ import {
   collectLinks,
   extract,
   isProtected,
+  isFileHostUrl,
   type PixeldrainItem,
   type ScrapeResult,
 } from "./pixeldrain-extract";
@@ -35,7 +36,7 @@ export async function scrapeUrl(
   if (deep) {
     const origin = new URL(first.finalUrl).origin;
     const candidates = collectLinks(first.html, first.finalUrl).filter((u) => {
-      if (u.includes("pixeldrain.com")) return false;
+      if (isFileHostUrl(u)) return false;
       if (/\.(css|js|png|jpe?g|gif|svg|webp|ico|woff2?|mp4|zip)(\?|$)/i.test(u)) return false;
       return true;
     });
@@ -121,7 +122,7 @@ export async function resolveDlc(
   extract(links.join("\n"), filename, found);
 
   for (const link of links) {
-    if (link.includes("pixeldrain.com")) continue;
+    if (isFileHostUrl(link)) continue;
     if (isProtected(link)) {
       protectedPages.add(link);
       continue;
@@ -161,7 +162,7 @@ export async function resolvePasted(input: string, label: string): Promise<Scrap
   extract(trimmed, label || "pasted content", found);
 
   const looksLikeSingleUrl = /^https?:\/\/\S+$/i.test(trimmed);
-  if (looksLikeSingleUrl && !trimmed.includes("pixeldrain.com")) {
+  if (looksLikeSingleUrl && !isFileHostUrl(trimmed)) {
     if (isProtected(trimmed)) {
       protectedPages.add(trimmed);
     } else {
