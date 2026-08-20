@@ -121,6 +121,7 @@ function Index() {
   });
 
   const command = useMemo(() => buildWget(items), [items]);
+  const idmList = useMemo(() => buildIdmList(items), [items]);
   const openMe = pending.filter((p) => p.status === "open-me");
 
   const copy = async () => {
@@ -128,6 +129,24 @@ function Index() {
     setCopied(true);
     toast.success("Command copied");
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  const copyIdm = async () => {
+    await navigator.clipboard.writeText(idmList);
+    setCopiedIdm(true);
+    toast.success("URLs copied — paste into IDM batch download");
+    setTimeout(() => setCopiedIdm(false), 1600);
+  };
+
+  const downloadEf2 = () => {
+    const blob = new Blob([buildIdmEf2(items)], { type: "text/plain" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = "pixeldrain-idm.ef2";
+    a.click();
+    URL.revokeObjectURL(href);
+    toast.success("Exported pixeldrain-idm.ef2");
   };
 
   const submitPaste = (label: string) => {
