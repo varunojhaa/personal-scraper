@@ -572,6 +572,7 @@ function Index() {
                     </label>
                   );
                 })}
+                </div>
               </CardContent>
             </Card>
 
