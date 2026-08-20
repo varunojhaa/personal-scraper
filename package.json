@@ -1,6 +1,7 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "personal-scraper",
   "private": true,
+  "license": "MIT",
   "sideEffects": false,
   "type": "module",
   "scripts": {
