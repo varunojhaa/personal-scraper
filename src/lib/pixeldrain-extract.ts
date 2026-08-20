@@ -214,9 +214,13 @@ export function buildWget(items: PixeldrainItem[]) {
       i.host === "pixeldrain"
         ? `wget --content-disposition ${common}${out} "${i.directUrl}"`
         : `wget --content-disposition ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
-    // Already-finished files: skip instead of re-opening a connection that
-    // stalls at "0 bytes remaining" and needs Ctrl+C to move on.
-    return i.filename ? `[ -s ${shellQuote(i.filename)} ] || ${cmd}` : cmd;
+    // Finished files leave a .done marker, so a re-run skips them instead of
+    // re-opening a connection that stalls and needs Ctrl+C. Partial files have
+    // no marker, so they still resume with -c.
+    if (!i.filename) return cmd;
+    const done = shellQuote(`${i.filename}.done`);
+    return `[ -f ${done} ] || { ${cmd} && touch ${done}; }`;
+
   });
   return `${lines.join("\n")}\n`;
 }
