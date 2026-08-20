@@ -193,8 +193,10 @@ function Index() {
         ? []
         : mode === "wget"
           ? selectedItems
-          : selectedItems.filter((i) => i.tool === "wget"),
-    [selectedItems, mode],
+          : fitgirlMode
+            ? []
+            : selectedItems.filter((i) => i.tool === "wget"),
+    [selectedItems, mode, fitgirlMode],
   );
   const idmItems = useMemo(
     () =>
@@ -202,8 +204,10 @@ function Index() {
         ? []
         : mode === "idm"
           ? selectedItems
-          : selectedItems.filter((i) => i.tool === "idm"),
-    [selectedItems, mode],
+          : fitgirlMode
+            ? selectedItems.filter((i) => i.tool === "idm")
+            : [],
+    [selectedItems, mode, fitgirlMode],
   );
   const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
