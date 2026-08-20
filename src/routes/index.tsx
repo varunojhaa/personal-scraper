@@ -320,10 +320,10 @@ function Index() {
             Personal Scraper
           </h1>
           <p className="mt-2 text-sm font-medium text-amber-300">
-            Not a universal scraper — only the currently detected sites are supported
-            (Pixeldrain links and the FuckingFast mirrors on fitgirl-repacks.site).
-            Captcha hosts like filecrypt and viewcrate are never scraped directly; use a
-            .dlc container or paste the link manually.
+            Not a universal scraper — only the currently detected sources are supported:
+            Pixeldrain links (from other sites) and FuckingFast mirrors (from fitgirl-repacks.site).
+            Captcha hosts like filecrypt and viewcrate are never scraped directly; use a .dlc
+            container or paste the link manually.
           </p>
           <p className="mt-3 max-w-2xl text-muted-foreground">
             Scan a page for direct links, or feed it a .dlc container / manual paste. Pick the files
