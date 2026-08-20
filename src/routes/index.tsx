@@ -479,6 +479,7 @@ function Index() {
                   {onlyFuckingfast
                     ? "Filtered to FuckingFast links only — every other hoster is hidden from the export lists."
                     : "Auto sends Pixeldrain links to wget and every other hoster (FuckingFast, DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list."}
+                  {!includeOptional && " · optional content (bonus/selective files) is hidden."}
                 </p>
               </CardContent>
             </Card>
