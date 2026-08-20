@@ -148,6 +148,14 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
       merge(d);
+      // Only auto-select Pixeldrain links from a decrypted container; every
+      // other host in the .dlc is deselected so the wget command targets just
+      // the Pixeldrain files.
+      setExcluded((prevEx) => {
+        const next = new Set(prevEx);
+        for (const i of d.items) if (i.host !== "pixeldrain") next.add(keyOf(i));
+        return next;
+      });
       if (d.items.length === 0) {
         toast.error(
           d.protectedPages.length
@@ -156,8 +164,11 @@ function Index() {
         );
         return;
       }
+      const pd = d.items.filter((i) => i.host === "pixeldrain").length;
       toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container — tick the files you want`,
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} Pixeldrain selected, ${
+          d.items.length - pd
+        } other host${d.items.length - pd === 1 ? "" : "s"} hidden`,
       );
     },
   });
