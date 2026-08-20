@@ -351,6 +351,34 @@ function Index() {
             </Card>
 
             <Card>
+              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardTitle className="text-base">IDM download list ({items.length})</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={copyIdm}>
+                    {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedIdm ? "Copied" : "Copy URLs"}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={downloadEf2}>
+                    <FileDown className="h-4 w-4" /> .ef2 file
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Copy the URLs, then in IDM use Tasks → Add Batch Download From Clipboard. Or grab
+                  the .ef2 file and use File → Import → From IDM export file.
+                </p>
+                <Textarea
+                  readOnly
+                  value={idmList}
+                  rows={Math.min(items.length + 1, 14)}
+                  className="resize-y text-xs"
+                  style={{ fontFamily: "var(--font-mono-stack)" }}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
               <CardHeader>
                 <CardTitle className="text-base">Collected links</CardTitle>
               </CardHeader>
