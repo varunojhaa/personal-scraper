@@ -530,8 +530,13 @@ function Index() {
             )}
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Collected links</CardTitle>
+              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardTitle className="text-base">
+                  Collected links ({filteredItems.length})
+                </CardTitle>
+                {onlyFuckingfast && (
+                  <Badge variant="secondary">FuckingFast only</Badge>
+                )}
               </CardHeader>
               <CardContent className="grid gap-2">
                 {items.map((i) => (
