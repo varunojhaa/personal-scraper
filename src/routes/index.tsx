@@ -13,6 +13,7 @@ import {
   ExternalLink,
   ClipboardPaste,
   Trash2,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
