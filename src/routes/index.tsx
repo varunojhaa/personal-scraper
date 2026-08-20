@@ -456,6 +456,10 @@ function Index() {
                     <Switch checked={onlyFuckingfast} onCheckedChange={setOnlyFuckingfast} />
                     FuckingFast only
                   </label>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
+                    Include optional content
+                  </label>
                   <div className="flex items-center gap-1 rounded-md border border-border p-1">
                     {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
                       <Button
