@@ -13,6 +13,7 @@ import {
   ExternalLink,
   ClipboardPaste,
   Trash2,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,7 +25,13 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
 import { scrapePixeldrain, resolvePastedContent } from "@/lib/scrape.functions";
-import { buildWget, type PixeldrainItem, type ScrapeResult } from "@/lib/pixeldrain-extract";
+import {
+  buildWget,
+  buildIdmList,
+  buildIdmEf2,
+  type PixeldrainItem,
+  type ScrapeResult,
+} from "@/lib/pixeldrain-extract";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -54,6 +61,7 @@ function Index() {
   const [url, setUrl] = useState("");
   const [deep, setDeep] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [copiedIdm, setCopiedIdm] = useState(false);
   const [items, setItems] = useState<PixeldrainItem[]>([]);
   const [pending, setPending] = useState<PendingPage[]>([]);
   const [scannedCount, setScannedCount] = useState(0);
@@ -114,6 +122,7 @@ function Index() {
   });
 
   const command = useMemo(() => buildWget(items), [items]);
+  const idmList = useMemo(() => buildIdmList(items), [items]);
   const openMe = pending.filter((p) => p.status === "open-me");
 
   const copy = async () => {
@@ -121,6 +130,24 @@ function Index() {
     setCopied(true);
     toast.success("Command copied");
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  const copyIdm = async () => {
+    await navigator.clipboard.writeText(idmList);
+    setCopiedIdm(true);
+    toast.success("URLs copied — paste into IDM batch download");
+    setTimeout(() => setCopiedIdm(false), 1600);
+  };
+
+  const downloadEf2 = () => {
+    const blob = new Blob([buildIdmEf2(items)], { type: "text/plain" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = "pixeldrain-idm.ef2";
+    a.click();
+    URL.revokeObjectURL(href);
+    toast.success("Exported pixeldrain-idm.ef2");
   };
 
   const submitPaste = (label: string) => {
@@ -343,6 +370,34 @@ function Index() {
                 <Textarea
                   readOnly
                   value={command}
+                  rows={Math.min(items.length + 1, 14)}
+                  className="resize-y text-xs"
+                  style={{ fontFamily: "var(--font-mono-stack)" }}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardTitle className="text-base">IDM download list ({items.length})</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={copyIdm}>
+                    {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedIdm ? "Copied" : "Copy URLs"}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={downloadEf2}>
+                    <FileDown className="h-4 w-4" /> .ef2 file
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Copy the URLs, then in IDM use Tasks → Add Batch Download From Clipboard. Or grab
+                  the .ef2 file and use File → Import → From IDM export file.
+                </p>
+                <Textarea
+                  readOnly
+                  value={idmList}
                   rows={Math.min(items.length + 1, 14)}
                   className="resize-y text-xs"
                   style={{ fontFamily: "var(--font-mono-stack)" }}

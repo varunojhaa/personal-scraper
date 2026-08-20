@@ -87,3 +87,15 @@ export function isProtected(url: string) {
 export function buildWget(items: PixeldrainItem[]) {
   return items.map((i) => `wget --content-disposition -c "${i.directUrl}"`).join("\n");
 }
+
+/** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
+export function buildIdmList(items: PixeldrainItem[]) {
+  return items.map((i) => i.directUrl).join("\n");
+}
+
+/** IDM .ef2 export format — File › Import › From IDM export file. */
+export function buildIdmEf2(items: PixeldrainItem[]) {
+  return items
+    .map((i) => `<\n${i.directUrl}\nreferer: ${i.pageUrl}\n>`)
+    .join("\n");
+}
