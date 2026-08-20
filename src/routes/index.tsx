@@ -539,7 +539,7 @@ function Index() {
                 )}
               </CardHeader>
               <CardContent className="grid gap-2">
-                {items.map((i) => (
+                {filteredItems.map((i) => (
                   <div
                     key={`${i.host}-${i.kind}-${i.id}`}
                     className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
