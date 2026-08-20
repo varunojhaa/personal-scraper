@@ -174,17 +174,6 @@ function Index() {
     [items],
   );
 
-  /** A single Pixeldrain link present in the top input or the manual paste box. */
-  const singlePdLink = useMemo(() => {
-    const RX = /https?:\/\/(?:www\.)?pixeldrain\.com\/[ul]\/[A-Za-z0-9]+/gi;
-    for (const s of [url, pasteValue]) {
-      const t = s?.trim();
-      if (!t) continue;
-      const matches = t.match(RX);
-      if (matches && matches.length === 1) return matches[0];
-    }
-    return null;
-  }, [url, pasteValue]);
 
   const visibleItems = useMemo(() => {
     let out = fitgirlMode
