@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -33,6 +34,7 @@ import {
   buildWget,
   buildIdmList,
   buildIdmEf2,
+  isProtected,
   HOST_LABELS,
   type PixeldrainItem,
   type ScrapeResult,
@@ -40,20 +42,25 @@ import {
 
 type ToolMode = "auto" | "wget" | "idm";
 
+const keyOf = (i: PixeldrainItem) => `${i.host}:${i.kind}:${i.id}`;
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Pixeldrain Link Scraper & wget Command Builder" },
+      { title: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder" },
       {
         name: "description",
         content:
-          "Scrape Pixeldrain links from any page, resolve captcha-protected containers by hand, and generate ready-to-run wget download commands.",
+          "Scrape download links from any page, decrypt .dlc containers, pick the files you want and get a ready-to-run wget command or IDM batch list.",
       },
-      { property: "og:title", content: "Pixeldrain Link Scraper & wget Command Builder" },
+      {
+        property: "og:title",
+        content: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder",
+      },
       {
         property: "og:description",
         content:
-          "Extract all Pixeldrain links from any web page and generate wget download commands instantly.",
+          "Collect links by scrape, manual paste or .dlc container, then export a wget command or IDM list for the files you select.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -66,7 +73,6 @@ type PendingPage = { url: string; status: "open-me" | "resolved" };
 
 function Index() {
   const [url, setUrl] = useState("");
-  const [deep, setDeep] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copiedIdm, setCopiedIdm] = useState(false);
   const [items, setItems] = useState<PixeldrainItem[]>([]);
@@ -75,8 +81,9 @@ function Index() {
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
-  const [onlyFuckingfast, setOnlyFuckingfast] = useState(false);
   const [includeOptional, setIncludeOptional] = useState(true);
+  /** Unselected item keys — everything is selected unless it's in here. */
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -84,8 +91,8 @@ function Index() {
 
   const merge = (result: ScrapeResult) => {
     setItems((prev) => {
-      const map = new Map(prev.map((i) => [`${i.kind}:${i.id}`, i]));
-      for (const i of result.items) map.set(`${i.kind}:${i.id}`, i);
+      const map = new Map(prev.map((i) => [keyOf(i), i]));
+      for (const i of result.items) map.set(keyOf(i), i);
       return [...map.values()];
     });
     setScannedCount((n) => n + result.pagesScanned.length);
@@ -102,13 +109,10 @@ function Index() {
   };
 
   const scrapeMutation = useMutation({
-    mutationFn: (target: string) => scrape({ data: { url: target, deep } }),
+    mutationFn: (target: string) => scrape({ data: { url: target, deep: false } }),
     onError: (e: Error) => toast.error(e.message || "Scrape failed"),
     onSuccess: (d) => {
       merge(d);
-      // FitGirl repacks are mirrored on three hosters; FuckingFast is the
-      // fastest, so default to FuckingFast-only when scraping a FitGirl page.
-      if (/fitgirl-repacks\.site/i.test(d.sourceUrl)) setOnlyFuckingfast(true);
       toast.success(
         `${d.items.length} link${d.items.length === 1 ? "" : "s"} found${
           d.protectedPages.length ? ` · ${d.protectedPages.length} page(s) need you` : ""
@@ -123,7 +127,7 @@ function Index() {
     onSuccess: (d, vars) => {
       merge(d);
       if (d.items.length === 0) {
-        toast.error("No Pixeldrain links in that paste");
+        toast.error("No download links in that paste");
         return;
       }
       setPending((prev) =>
@@ -148,42 +152,73 @@ function Index() {
         toast.error(
           d.protectedPages.length
             ? "Container decrypted, but its links are captcha-protected — see the open-me queue"
-            : "No Pixeldrain links in that container",
+            : "No download links in that container",
         );
         return;
       }
       toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container`,
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container — tick the files you want`,
       );
     },
   });
 
-  const filteredItems = useMemo(() => {
-    let out = onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items;
+  /**
+   * FitGirl mirrors every part on three hosters. FuckingFast is the fastest, so
+   * whenever a FitGirl page is in the mix we always keep FuckingFast only.
+   */
+  const fitgirlMode = useMemo(
+    () =>
+      items.some(
+        (i) => i.host === "fuckingfast" && /fitgirl-repacks\.site/i.test(i.foundOn ?? ""),
+      ) || (items.some((i) => i.host === "fuckingfast") && items.some((i) => i.host !== "fuckingfast" && i.host !== "pixeldrain")),
+    [items],
+  );
+
+  const visibleItems = useMemo(() => {
+    let out = fitgirlMode
+      ? items.filter((i) => i.host === "fuckingfast" || i.host === "pixeldrain")
+      : items;
     if (!includeOptional) out = out.filter((i) => !i.optional);
     return out;
-  }, [items, onlyFuckingfast, includeOptional]);
+  }, [items, fitgirlMode, includeOptional]);
+
+  const selectedItems = useMemo(
+    () => visibleItems.filter((i) => !excluded.has(keyOf(i))),
+    [visibleItems, excluded],
+  );
+
   const wgetItems = useMemo(
     () =>
       mode === "idm"
         ? []
         : mode === "wget"
-          ? filteredItems
-          : filteredItems.filter((i) => i.tool === "wget"),
-    [filteredItems, mode],
+          ? selectedItems
+          : selectedItems.filter((i) => i.tool === "wget"),
+    [selectedItems, mode],
   );
   const idmItems = useMemo(
     () =>
       mode === "wget"
         ? []
         : mode === "idm"
-          ? filteredItems
-          : filteredItems.filter((i) => i.tool === "idm"),
-    [filteredItems, mode],
+          ? selectedItems
+          : selectedItems.filter((i) => i.tool === "idm"),
+    [selectedItems, mode],
   );
   const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
   const openMe = pending.filter((p) => p.status === "open-me");
+
+  const toggleItem = (k: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
+  const selectAll = () => setExcluded(new Set());
+  const selectNone = () => setExcluded(new Set(visibleItems.map(keyOf)));
 
   const copy = async () => {
     await navigator.clipboard.writeText(command);
@@ -204,15 +239,30 @@ function Index() {
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
-    a.download = "pixeldrain-idm.ef2";
+    a.download = "downloads-idm.ef2";
     a.click();
     URL.revokeObjectURL(href);
-    toast.success("Exported pixeldrain-idm.ef2");
+    toast.success("Exported downloads-idm.ef2");
   };
 
   const submitPaste = (label: string) => {
     if (pasteValue.trim().length < 3) return;
     pasteMutation.mutate({ content: pasteValue, label });
+  };
+
+  const startScrape = () => {
+    const target = url.trim();
+    if (!target) return;
+    if (isProtected(target)) {
+      toast.error(
+        "That host is captcha-protected — use the manual paste or .dlc upload below instead",
+      );
+      setPending((prev) =>
+        prev.some((p) => p.url === target) ? prev : [...prev, { url: target, status: "open-me" }],
+      );
+      return;
+    }
+    scrapeMutation.mutate(target);
   };
 
   const resetAll = () => {
@@ -221,6 +271,7 @@ function Index() {
     setScannedCount(0);
     setActivePaste(null);
     setPasteValue("");
+    setExcluded(new Set());
   };
 
   return (
@@ -232,19 +283,20 @@ function Index() {
             <Terminal className="h-3.5 w-3.5" /> scraper
           </Badge>
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            Pixeldrain link scraper
+            Download link scraper
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Scan a page for Pixeldrain files and lists. Captcha-protected containers get flagged as
-            &quot;open me&quot; — solve them yourself, paste the result back, and everything merges
-            into one wget command.
+            Scan a page for direct links, or feed it a .dlc container / manual paste. Pick the files
+            you want and copy one wget command (Pixeldrain) or an IDM batch list (FuckingFast).
+            Captcha hosts like filecrypt and viewcrate are never scraped — use the container or a
+            manual link instead.
           </p>
 
           <form
             className="mt-8 flex flex-col gap-3 sm:flex-row"
             onSubmit={(e) => {
               e.preventDefault();
-              if (url.trim()) scrapeMutation.mutate(url.trim());
+              startScrape();
             }}
           >
             <div className="relative flex-1">
@@ -270,11 +322,6 @@ function Index() {
               )}
             </Button>
           </form>
-
-          <label className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
-            <Switch checked={deep} onCheckedChange={setDeep} />
-            Deep scan — follow sub-pages and redirects (up to 20 pages, slower)
-          </label>
         </div>
       </div>
 
@@ -301,9 +348,9 @@ function Index() {
             </CardHeader>
             <CardContent className="grid gap-3">
               <p className="text-sm text-muted-foreground">
-                These hide links behind a captcha, so they can&apos;t be read automatically. Open
-                one, solve it, then paste the Pixeldrain link it reveals — or the whole page HTML
-                (Ctrl+U → Ctrl+A → Ctrl+C) — back here.
+                filecrypt / viewcrate style pages are never scraped. Open one, solve the captcha,
+                then either download its .dlc container and upload it below, or paste the Pixeldrain
+                link it reveals here.
               </p>
 
               {pending.map((p) => (
@@ -388,7 +435,7 @@ function Index() {
                 }
               }}
               onChange={(e) => setPasteValue(e.target.value)}
-              placeholder="Paste any Pixeldrain links, a solved page URL, or raw HTML…"
+              placeholder="Paste any Pixeldrain / FuckingFast links, a solved page URL, or raw HTML…"
               className="text-xs"
               style={{ fontFamily: "var(--font-mono-stack)" }}
             />
@@ -416,8 +463,9 @@ function Index() {
           </CardHeader>
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              Drop a JDownloader <code>.dlc</code> link container here. It gets decrypted, then
-              every Pixeldrain link inside is added to the wget and IDM lists.
+              Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
+              inside lands in the file picker below, where you tick the parts you actually want
+              before copying the wget command.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Input
@@ -442,7 +490,7 @@ function Index() {
 
         {scrapeMutation.isSuccess && items.length === 0 && pending.length === 0 && (
           <p className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
-            No Pixeldrain links found on that page.
+            No download links found on that page.
           </p>
         )}
 
@@ -452,10 +500,6 @@ function Index() {
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
                 <CardTitle className="text-base">Download tool</CardTitle>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Switch checked={onlyFuckingfast} onCheckedChange={setOnlyFuckingfast} />
-                    FuckingFast only
-                  </label>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
                     Include optional content
@@ -476,11 +520,54 @@ function Index() {
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  {onlyFuckingfast
-                    ? "Filtered to FuckingFast links only — every other hoster is hidden from the export lists."
-                    : "Auto sends Pixeldrain links to wget and every other hoster (FuckingFast, DataNodes, FileKeeper) to IDM. Pick wget or IDM to force all links into one list."}
+                  Auto sends Pixeldrain to wget and FuckingFast to IDM. Pick wget or IDM to force
+                  everything into one list.
+                  {fitgirlMode && " · FitGirl detected — FuckingFast mirrors only."}
                   {!includeOptional && " · optional content (bonus/selective files) is hidden."}
                 </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+                <CardTitle className="text-base">
+                  Select files ({selectedItems.length}/{visibleItems.length})
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={selectAll}>
+                    Select all
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={selectNone}>
+                    Clear
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                {visibleItems.map((i) => {
+                  const k = keyOf(i);
+                  const checked = !excluded.has(k);
+                  return (
+                    <label
+                      key={k}
+                      className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
+                    >
+                      <Checkbox checked={checked} onCheckedChange={() => toggleItem(k)} />
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        style={{ fontFamily: "var(--font-mono-stack)" }}
+                      >
+                        {i.filename || i.pageUrl}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
+                        {i.optional && <Badge variant="secondary">optional</Badge>}
+                        <Badge variant={i.tool === "wget" ? "default" : "secondary"}>
+                          {i.tool}
+                        </Badge>
+                      </span>
+                    </label>
+                  );
+                })}
               </CardContent>
             </Card>
 
@@ -495,8 +582,8 @@ function Index() {
                 </CardHeader>
                 <CardContent>
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Copy this whole block and paste it into a terminal — it downloads every file,
-                    with resume and correct filenames.
+                    Copy this whole block and paste it into a terminal — it downloads every selected
+                    file, with resume and correct filenames.
                   </p>
                   <Textarea
                     readOnly
@@ -538,40 +625,6 @@ function Index() {
                 </CardContent>
               </Card>
             )}
-
-            <Card>
-              <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-                <CardTitle className="text-base">
-                  Collected links ({filteredItems.length})
-                </CardTitle>
-                {onlyFuckingfast && (
-                  <Badge variant="secondary">FuckingFast only</Badge>
-                )}
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                {filteredItems.map((i) => (
-                  <div
-                    key={`${i.host}-${i.kind}-${i.id}`}
-                    className="flex items-center justify-between gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
-                  >
-                    <a
-                      href={i.pageUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="truncate text-sm text-accent hover:underline"
-                      style={{ fontFamily: "var(--font-mono-stack)" }}
-                    >
-                      {i.pageUrl}
-                    </a>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
-                      {i.optional && <Badge variant="secondary">optional</Badge>}
-                      <Badge variant={i.tool === "wget" ? "default" : "secondary"}>{i.tool}</Badge>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
           </div>
         )}
       </div>
