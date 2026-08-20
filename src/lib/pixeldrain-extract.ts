@@ -208,7 +208,7 @@ export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
   // Common flags: retry on stalls instead of hanging forever, and resume.
   const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5`;
-  const lines = items.map((i) => {
+  const segments = items.map((i) => {
     const out = i.filename ? ` -O ${shellQuote(i.filename)}` : "";
     const cmd =
       i.host === "pixeldrain"
@@ -220,9 +220,10 @@ export function buildWget(items: PixeldrainItem[]) {
     if (!i.filename) return cmd;
     const done = shellQuote(`${i.filename}.done`);
     return `[ -f ${done} ] || { ${cmd} && touch ${done}; }`;
-
   });
-  return `${lines.join("\n")}\n`;
+  // Join with "; " so the whole thing is one copy-pasteable command line;
+  // a single file's failure won't stop the rest (no && chaining).
+  return `${segments.join("; ")}\n`;
 }
 
 
