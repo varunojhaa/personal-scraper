@@ -61,6 +61,7 @@ function Index() {
   const [url, setUrl] = useState("");
   const [deep, setDeep] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [copiedIdm, setCopiedIdm] = useState(false);
   const [items, setItems] = useState<PixeldrainItem[]>([]);
   const [pending, setPending] = useState<PendingPage[]>([]);
   const [scannedCount, setScannedCount] = useState(0);
