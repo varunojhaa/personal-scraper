@@ -206,14 +206,21 @@ function shellQuote(name: string) {
 
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
+  // Common flags: retry on stalls instead of hanging forever, and resume.
+  const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5`;
   const lines = items.map((i) => {
     const out = i.filename ? ` -O ${shellQuote(i.filename)}` : "";
-    return i.host === "pixeldrain"
-      ? `wget --content-disposition -c${out} "${i.directUrl}"`
-      : `wget --content-disposition -c${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+    const cmd =
+      i.host === "pixeldrain"
+        ? `wget --content-disposition ${common}${out} "${i.directUrl}"`
+        : `wget --content-disposition ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+    // Already-finished files: skip instead of re-opening a connection that
+    // stalls at "0 bytes remaining" and needs Ctrl+C to move on.
+    return i.filename ? `[ -s ${shellQuote(i.filename)} ] || ${cmd}` : cmd;
   });
   return `${lines.join("\n")}\n`;
 }
+
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
 export function buildIdmList(items: PixeldrainItem[]) {
