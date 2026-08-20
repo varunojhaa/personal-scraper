@@ -11,6 +11,8 @@ export type PixeldrainItem = {
   filename?: string;
   /** Recommended downloader for this host. */
   tool: "wget" | "idm";
+  /** True for bonus/selective files you can skip (fg-optional-*, fg-selective-*, …). */
+  optional?: boolean;
 };
 
 export type ScrapeResult = {
