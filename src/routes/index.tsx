@@ -665,14 +665,14 @@ function Index() {
                 </CardHeader>
                 <CardContent>
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Copy this whole block and paste it into a terminal — it downloads every selected
-                    file, with resume and correct filenames.
+                    Copy this command and paste it into a terminal — it downloads every selected
+                    file in one line, with resume and correct filenames.
                   </p>
                   <Textarea
                     readOnly
                     value={command}
-                    rows={Math.min(wgetItems.length + 2, 14)}
-                    className="resize-y text-xs"
+                    rows={3}
+                    className="resize-y overflow-x-auto text-xs"
                     style={{ fontFamily: "var(--font-mono-stack)" }}
                   />
                 </CardContent>
