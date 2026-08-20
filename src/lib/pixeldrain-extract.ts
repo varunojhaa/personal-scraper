@@ -98,6 +98,43 @@ const RULES: Rule[] = [
   },
 ];
 
+/**
+ * Pull the displayed filename out of a link id. For FuckingFast the name lives
+ * in the URL fragment (`#name`); for DataNodes/FileKeeper it is the last path
+ * segment. Pixeldrain ids are opaque codes with no filename.
+ */
+function nameFromId(host: HostKey, id: string): string {
+  if (host === "fuckingfast") {
+    const frag = id.split("#")[1];
+    if (frag) {
+      try {
+        return decodeURIComponent(frag);
+      } catch {
+        return frag;
+      }
+    }
+    return "";
+  }
+  if (host === "pixeldrain") return "";
+  const seg = id.split("/").filter(Boolean).pop() ?? "";
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+
+/**
+ * FitGirl labels optional content with a filename prefix like `fg-optional-`
+ * or `fg-selective-`. These are bonus soundtracks, language packs, HD texture
+ * packs, etc. — you can skip them and the repack still installs.
+ */
+export function isOptionalName(name: string): boolean {
+  const n = name.toLowerCase();
+  return /\bfg-(optional|selective|choose|online|multi|bonus|redist)\b/.test(n) ||
+    /\b(optional|selective)\b/i.test(n);
+}
+
 export function extract(html: string, foundOn: string, into: Map<string, PixeldrainItem>) {
   for (const rule of RULES) {
     for (const m of html.matchAll(rule.re)) {
@@ -105,6 +142,8 @@ export function extract(html: string, foundOn: string, into: Map<string, Pixeldr
       if (!id) continue;
       const key = `${rule.host}:${rule.kind}:${id}`;
       if (into.has(key)) continue;
+      const name = nameFromId(rule.host, id);
+      const optional = name ? isOptionalName(name) : false;
       into.set(key, {
         id,
         kind: rule.kind,
@@ -113,6 +152,8 @@ export function extract(html: string, foundOn: string, into: Map<string, Pixeldr
         pageUrl: rule.page(id),
         directUrl: rule.direct(id),
         tool: rule.tool,
+        optional,
+        ...(rule.host !== "pixeldrain" && name ? { filename: name } : {}),
       });
     }
   }
