@@ -57,7 +57,7 @@ type Rule = {
 
 const RULES: Rule[] = [
   {
-    re: /pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]{4,12})/g,
+    re: /pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]{4,12})/gi,
     host: "pixeldrain",
     kind: "file",
     page: (id) => `https://pixeldrain.com/u/${id}`,
@@ -65,7 +65,7 @@ const RULES: Rule[] = [
     tool: "wget",
   },
   {
-    re: /pixeldrain\.com\/l\/([A-Za-z0-9]{4,12})/g,
+    re: /pixeldrain\.com\/l\/([A-Za-z0-9]{4,12})/gi,
     host: "pixeldrain",
     kind: "list",
     page: (id) => `https://pixeldrain.com/l/${id}`,
@@ -73,7 +73,7 @@ const RULES: Rule[] = [
     tool: "wget",
   },
   {
-    re: /fuckingfast\.(?:co|net)\/([A-Za-z0-9]{4,40}(?:#[^\s"'<>]{0,200})?)/g,
+    re: /fuckingfast\.(?:co|net)\/([A-Za-z0-9]{4,40}(?:#[^\s"'<>]{0,200})?)/gi,
     host: "fuckingfast",
     kind: "file",
     page: (id) => `https://fuckingfast.co/${id}`,
@@ -81,7 +81,7 @@ const RULES: Rule[] = [
     tool: "idm",
   },
   {
-    re: /datanodes\.to\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/g,
+    re: /datanodes\.to\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/gi,
     host: "datanodes",
     kind: "file",
     page: (id) => `https://datanodes.to/${id}`,
@@ -89,7 +89,7 @@ const RULES: Rule[] = [
     tool: "idm",
   },
   {
-    re: /filekeeper\.net\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/g,
+    re: /filekeeper\.net\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/gi,
     host: "filekeeper",
     kind: "file",
     page: (id) => `https://filekeeper.net/${id}`,
