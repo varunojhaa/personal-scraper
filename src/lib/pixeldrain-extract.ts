@@ -233,10 +233,15 @@ export function buildWget(items: PixeldrainItem[]) {
     const done = shellQuote(`${i.filename}.done`);
     return `[ -f ${done} ] || { ${cmd} && touch ${done}; }`;
   });
-  // Join with "; " so the whole thing is one copy-pasteable command line;
-  // a single file's failure won't stop the rest (no && chaining).
-  return `${segments.join("; ")}\n`;
+  // Join with "; " so the whole thing is one command line; a single file's
+  // failure won't stop the rest (no && chaining).
+  const script = segments.join("; ");
+  // Run detached: setsid + nohup put the whole sequence in its own session so
+  // it survives closing the terminal / SSH session. Output goes to wget.log,
+  // and the PID is printed so you can `kill` it or `tail -f wget.log`.
+  return `setsid nohup bash -c ${shellQuote(script)} > wget.log 2>&1 < /dev/null & disown; echo "started in background (PID $!) — watch progress with: tail -f wget.log"\n`;
 }
+
 
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
