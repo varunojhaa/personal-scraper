@@ -35,7 +35,7 @@ export const scrapePixeldrain = createServerFn({ method: "POST" })
 
     for (const { re, kind } of patterns) {
       for (const m of html.matchAll(re)) {
-        const id = m[1];
+        const id = m[1] as string;
         const key = `${kind}:${id}`;
         if (found.has(key)) continue;
         found.set(key, {
