@@ -80,6 +80,68 @@ export async function scrapeUrl(
 }
 
 /**
+ * Decrypt a .dlc link container through the public dcrypt.it service, then
+ * pull Pixeldrain links out of the resulting URL list (following non-protected
+ * intermediate pages when asked).
+ */
+export async function resolveDlc(
+  base64Content: string,
+  filename: string,
+  follow: boolean,
+): Promise<ScrapeResult> {
+  const found = new Map<string, PixeldrainItem>();
+  const pagesScanned: string[] = [];
+  const protectedPages = new Set<string>();
+
+  const res = await fetch("http://dcrypt.it/decrypt/paste", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA },
+    body: new URLSearchParams({ content: base64Content }).toString(),
+  });
+  if (!res.ok) throw new Error(`DLC decrypt service failed (HTTP ${res.status})`);
+
+  const json = (await res.json()) as {
+    success?: { links?: string[] };
+    form_errors?: Record<string, unknown>;
+    error?: string;
+  };
+  const links = json.success?.links ?? [];
+  if (!links.length) {
+    throw new Error(
+      json.error || "Could not decrypt that container — it may be expired or not a valid .dlc file",
+    );
+  }
+
+  extract(links.join("\n"), filename, found);
+
+  for (const link of links) {
+    if (link.includes("pixeldrain.com")) continue;
+    if (isProtected(link)) {
+      protectedPages.add(link);
+      continue;
+    }
+    if (!follow || pagesScanned.length >= 20) continue;
+    try {
+      const page = await fetchPage(link);
+      if (!page.ok) continue;
+      pagesScanned.push(page.finalUrl);
+      if (isProtected(page.finalUrl)) protectedPages.add(page.finalUrl);
+      else extract(page.html, page.finalUrl, found);
+    } catch {
+      /* skip unreachable link */
+    }
+  }
+
+  return {
+    sourceUrl: filename,
+    items: [...found.values()],
+    pagesScanned,
+    protectedPages: [...protectedPages],
+    scrapedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Resolve a manually pasted blob: it can be a Pixeldrain URL, a page URL to
  * fetch, or raw HTML/text copied out of a solved captcha page.
  */
