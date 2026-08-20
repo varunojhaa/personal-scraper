@@ -47,15 +47,15 @@ const keyOf = (i: PixeldrainItem) => `${i.host}:${i.kind}:${i.id}`;
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder" },
+      { title: "Personal Scraper — wget / IDM download builder" },
       {
         name: "description",
         content:
-          "Scrape download links from any page, decrypt .dlc containers, pick the files you want and get a ready-to-run wget command or IDM batch list.",
+          "Personal Scraper: collect download links by scrape, manual paste or .dlc container, then export a ready-to-run wget command or IDM batch list for the files you select.",
       },
       {
         property: "og:title",
-        content: "Pixeldrain & FuckingFast Link Scraper — wget / IDM builder",
+        content: "Personal Scraper — wget / IDM download builder",
       },
       {
         property: "og:description",
@@ -280,10 +280,10 @@ function Index() {
       <div className="border-b border-border" style={{ backgroundImage: "var(--gradient-hero)" }}>
         <div className="mx-auto max-w-4xl px-6 py-16">
           <Badge variant="outline" className="mb-4 gap-1.5">
-            <Terminal className="h-3.5 w-3.5" /> scraper
+            <Terminal className="h-3.5 w-3.5" /> personal
           </Badge>
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            Download link scraper
+            Personal Scraper
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
             Scan a page for direct links, or feed it a .dlc container / manual paste. Pick the files
