@@ -328,8 +328,6 @@ function Index() {
           <p className="mt-3 max-w-2xl text-muted-foreground">
             Scan a page for direct links, or feed it a .dlc container / manual paste. Pick the files
             you want and copy one wget command (Pixeldrain) or an IDM batch list (FuckingFast).
-            Captcha hosts like filecrypt and viewcrate are never scraped — use the container or a
-            manual link instead.
           </p>
 
           <form
