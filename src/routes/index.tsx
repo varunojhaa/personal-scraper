@@ -350,6 +350,36 @@ function Index() {
           </CardContent>
         </Card>
 
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Upload a .dlc container</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              Drop a JDownloader <code>.dlc</code> link container here. It gets decrypted, then
+              every Pixeldrain link inside is added to the wget and IDM lists.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                type="file"
+                accept=".dlc,.txt"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) dlcMutation.mutate(file);
+                  e.target.value = "";
+                }}
+                disabled={dlcMutation.isPending}
+                className="h-11 max-w-sm cursor-pointer file:mr-3 file:text-sm"
+              />
+              {dlcMutation.isPending && (
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Decrypting container…
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {scrapeMutation.isSuccess && items.length === 0 && pending.length === 0 && (
           <p className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
             No Pixeldrain links found on that page.
