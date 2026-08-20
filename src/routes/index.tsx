@@ -76,6 +76,7 @@ function Index() {
   const [pasteValue, setPasteValue] = useState("");
   const [mode, setMode] = useState<ToolMode>("auto");
   const [onlyFuckingfast, setOnlyFuckingfast] = useState(false);
+  const [includeOptional, setIncludeOptional] = useState(true);
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
