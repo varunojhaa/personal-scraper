@@ -46,17 +46,20 @@ function buildWget(items: PixeldrainItem[]) {
 
 function Index() {
   const [url, setUrl] = useState("");
+  const [deep, setDeep] = useState(true);
   const [copied, setCopied] = useState(false);
   const scrape = useServerFn(scrapePixeldrain);
 
   const mutation = useMutation({
-    mutationFn: (target: string) => scrape({ data: { url: target } }),
+    mutationFn: (target: string) => scrape({ data: { url: target, deep } }),
     onError: (e: Error) => toast.error(e.message || "Scrape failed"),
     onSuccess: (d) =>
       toast.success(`Found ${d.items.length} Pixeldrain link${d.items.length === 1 ? "" : "s"}`),
   });
 
   const items = mutation.data?.items ?? [];
+  const blocked = mutation.data?.protectedPages ?? [];
+  const scanned = mutation.data?.pagesScanned ?? [];
   const command = useMemo(() => buildWget(items), [items]);
 
   const copy = async () => {
@@ -81,8 +84,8 @@ function Index() {
             Pixeldrain link scraper
           </h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Give it a page link. It pulls out every Pixeldrain file and list, then builds one
-            wget command you can paste straight into a terminal.
+            Paste any page. It scans that page and, with deep scan on, follows its sub-pages and
+            redirects to collect every Pixeldrain file or list, then builds one wget command.
           </p>
 
           <form
@@ -115,8 +118,14 @@ function Index() {
               )}
             </Button>
           </form>
+
+          <label className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
+            <Switch checked={deep} onCheckedChange={setDeep} />
+            Deep scan — follow sub-pages and redirects (up to 20 pages, slower)
+          </label>
         </div>
       </div>
+
 
       <div className="mx-auto max-w-4xl px-6 py-12">
         {mutation.isSuccess && items.length === 0 && (
