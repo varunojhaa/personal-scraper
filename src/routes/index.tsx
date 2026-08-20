@@ -364,6 +364,27 @@ function Index() {
               )}
             </Button>
           </form>
+
+          {singlePdLink && (
+            <div className="mt-3 flex items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                Single Pixeldrain link detected — copy a ready wget command for it.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={quickWgetMutation.isPending}
+                onClick={() => quickWgetMutation.mutate(singlePdLink)}
+              >
+                {quickWgetMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                Copy wget command
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
