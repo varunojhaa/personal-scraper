@@ -206,14 +206,25 @@ function shellQuote(name: string) {
 
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
+  // Common flags: retry on stalls instead of hanging forever, and resume.
+  const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5`;
   const lines = items.map((i) => {
     const out = i.filename ? ` -O ${shellQuote(i.filename)}` : "";
-    return i.host === "pixeldrain"
-      ? `wget --content-disposition -c${out} "${i.directUrl}"`
-      : `wget --content-disposition -c${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+    const cmd =
+      i.host === "pixeldrain"
+        ? `wget --content-disposition ${common}${out} "${i.directUrl}"`
+        : `wget --content-disposition ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+    // Finished files leave a .done marker, so a re-run skips them instead of
+    // re-opening a connection that stalls and needs Ctrl+C. Partial files have
+    // no marker, so they still resume with -c.
+    if (!i.filename) return cmd;
+    const done = shellQuote(`${i.filename}.done`);
+    return `[ -f ${done} ] || { ${cmd} && touch ${done}; }`;
+
   });
   return `${lines.join("\n")}\n`;
 }
+
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
 export function buildIdmList(items: PixeldrainItem[]) {
