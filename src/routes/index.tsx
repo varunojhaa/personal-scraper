@@ -24,7 +24,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
-import { scrapePixeldrain, resolvePastedContent } from "@/lib/scrape.functions";
+import {
+  scrapePixeldrain,
+  resolvePastedContent,
+  resolveDlcContainer,
+} from "@/lib/scrape.functions";
 import {
   buildWget,
   buildIdmList,
@@ -70,6 +74,7 @@ function Index() {
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
+  const resolveDlc = useServerFn(resolveDlcContainer);
 
   const merge = (result: ScrapeResult) => {
     setItems((prev) => {
@@ -118,6 +123,29 @@ function Index() {
       setActivePaste(null);
       setPasteValue("");
       toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"}`);
+    },
+  });
+
+  const dlcMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (const b of buf) bin += String.fromCharCode(b);
+      const base64 = btoa(bin);
+      return resolveDlc({ data: { base64, filename: file.name, follow: true } });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not read that container"),
+    onSuccess: (d) => {
+      merge(d);
+      if (d.items.length === 0) {
+        toast.error(
+          d.protectedPages.length
+            ? "Container decrypted, but its links are captcha-protected — see the open-me queue"
+            : "No Pixeldrain links in that container",
+        );
+        return;
+      }
+      toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container`);
     },
   });
 
@@ -346,6 +374,36 @@ function Index() {
                 )}
                 Extract links
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Upload a .dlc container</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              Drop a JDownloader <code>.dlc</code> link container here. It gets decrypted, then
+              every Pixeldrain link inside is added to the wget and IDM lists.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                type="file"
+                accept=".dlc,.txt"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) dlcMutation.mutate(file);
+                  e.target.value = "";
+                }}
+                disabled={dlcMutation.isPending}
+                className="h-11 max-w-sm cursor-pointer file:mr-3 file:text-sm"
+              />
+              {dlcMutation.isPending && (
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Decrypting container…
+                </span>
+              )}
             </div>
           </CardContent>
         </Card>

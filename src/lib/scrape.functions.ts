@@ -32,3 +32,18 @@ export const resolvePastedContent = createServerFn({ method: "POST" })
     const { resolvePasted } = await import("./scrape.server");
     return resolvePasted(data.content, data.label);
   });
+
+export const resolveDlcContainer = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        base64: z.string().min(16).max(8_000_000),
+        filename: z.string().max(300).optional().default("container.dlc"),
+        follow: z.boolean().optional().default(true),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<ScrapeResult> => {
+    const { resolveDlc } = await import("./scrape.server");
+    return resolveDlc(data.base64, data.filename, data.follow);
+  });
