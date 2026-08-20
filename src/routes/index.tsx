@@ -126,6 +126,29 @@ function Index() {
     },
   });
 
+  const dlcMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (const b of buf) bin += String.fromCharCode(b);
+      const base64 = btoa(bin);
+      return resolveDlc({ data: { base64, filename: file.name, follow: true } });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not read that container"),
+    onSuccess: (d) => {
+      merge(d);
+      if (d.items.length === 0) {
+        toast.error(
+          d.protectedPages.length
+            ? "Container decrypted, but its links are captcha-protected — see the open-me queue"
+            : "No Pixeldrain links in that container",
+        );
+        return;
+      }
+      toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} from container`);
+    },
+  });
+
   const command = useMemo(() => buildWget(items), [items]);
   const idmList = useMemo(() => buildIdmList(items), [items]);
   const openMe = pending.filter((p) => p.status === "open-me");
