@@ -51,7 +51,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Personal Scraper: collect download links by scrape, manual paste or .dlc container, then export a ready-to-run wget command or IDM batch list for the files you select.",
+          "Personal Scraper — not a universal scraper. Collect download links by scrape, manual paste or .dlc container, then export a ready-to-run wget command or IDM batch list for the files you select.",
       },
       {
         property: "og:title",
@@ -60,7 +60,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Collect links by scrape, manual paste or .dlc container, then export a wget command or IDM list for the files you select.",
+          "Not a universal scraper. Collect links by scrape, manual paste or .dlc container, then export a wget command or IDM list for the files you select.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
