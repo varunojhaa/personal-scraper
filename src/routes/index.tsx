@@ -154,13 +154,27 @@ function Index() {
     },
   });
 
+  const filteredItems = useMemo(
+    () => (onlyFuckingfast ? items.filter((i) => i.host === "fuckingfast") : items),
+    [items, onlyFuckingfast],
+  );
   const wgetItems = useMemo(
-    () => (mode === "idm" ? [] : mode === "wget" ? items : items.filter((i) => i.tool === "wget")),
-    [items, mode],
+    () =>
+      mode === "idm"
+        ? []
+        : mode === "wget"
+          ? filteredItems
+          : filteredItems.filter((i) => i.tool === "wget"),
+    [filteredItems, mode],
   );
   const idmItems = useMemo(
-    () => (mode === "wget" ? [] : mode === "idm" ? items : items.filter((i) => i.tool === "idm")),
-    [items, mode],
+    () =>
+      mode === "wget"
+        ? []
+        : mode === "idm"
+          ? filteredItems
+          : filteredItems.filter((i) => i.tool === "idm"),
+    [filteredItems, mode],
   );
   const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
