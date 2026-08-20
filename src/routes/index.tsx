@@ -560,10 +560,12 @@ function Index() {
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
                 <CardTitle className="text-base">Download tool</CardTitle>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
-                    Include optional content
-                  </label>
+                  {fitgirlMode && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
+                      Include optional content
+                    </label>
+                  )}
                   <div className="flex items-center gap-1 rounded-md border border-border p-1">
                     {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
                       <Button
@@ -583,7 +585,7 @@ function Index() {
                   Auto sends Pixeldrain to wget and FuckingFast to IDM. Pick wget or IDM to force
                   everything into one list.
                   {fitgirlMode && " · FitGirl detected — FuckingFast mirrors only."}
-                  {!includeOptional && " · optional content (bonus/selective files) is hidden."}
+                  {fitgirlMode && !includeOptional && " · optional content (bonus/selective files) is hidden."}
                 </p>
               </CardContent>
             </Card>
