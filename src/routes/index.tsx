@@ -14,6 +14,7 @@ import {
   ClipboardPaste,
   Trash2,
   FileDown,
+  Github,
 } from "lucide-react";
 import { toast } from "sonner";
 
