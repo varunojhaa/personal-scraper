@@ -565,6 +565,7 @@ function Index() {
                     </a>
                     <div className="flex shrink-0 items-center gap-2">
                       <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
+                      {i.optional && <Badge variant="secondary">optional</Badge>}
                       <Badge variant={i.tool === "wget" ? "default" : "secondary"}>{i.tool}</Badge>
                     </div>
                   </div>
