@@ -1,4 +1,4 @@
-export type HostKey = "pixeldrain" | "fuckingfast" | "datanodes" | "filekeeper";
+export type HostKey = "pixeldrain" | "fileditch" | "fuckingfast" | "datanodes" | "filekeeper";
 
 export type PixeldrainItem = {
   id: string;
@@ -25,6 +25,7 @@ export type ScrapeResult = {
 
 export const HOST_LABELS: Record<HostKey, string> = {
   pixeldrain: "Pixeldrain",
+  fileditch: "FileDitch",
   fuckingfast: "FuckingFast",
   datanodes: "DataNodes",
   filekeeper: "FileKeeper",
