@@ -149,12 +149,11 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
       merge(d);
-      // Only auto-select Pixeldrain links from a decrypted container; every
-      // other host in the .dlc is deselected so the wget command targets just
-      // the Pixeldrain files.
+      // Only auto-select links from the chosen provider; every other host in
+      // the .dlc is deselected so the wget command targets just those files.
       setExcluded((prevEx) => {
         const next = new Set(prevEx);
-        for (const i of d.items) if (i.host !== "pixeldrain") next.add(keyOf(i));
+        for (const i of d.items) if (i.host !== dlcHost) next.add(keyOf(i));
         return next;
       });
       if (d.items.length === 0) {
