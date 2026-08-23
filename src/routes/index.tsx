@@ -720,6 +720,13 @@ function Index() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {wgetItems.some((i) => i.check && i.check.status !== "ok") && (
+                    <p className="mb-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
+                      Some selected links failed the content check (wrong content type or
+                      suspiciously small). They are still included — unselect them above if the
+                      download saves a tiny HTML file instead of the media.
+                    </p>
+                  )}
                   <p className="mb-2 text-xs text-muted-foreground">
                     Copy this command and paste it into a terminal — it downloads every selected
                     file in the background, so it keeps running after you close the session.
