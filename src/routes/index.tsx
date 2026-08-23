@@ -686,6 +686,14 @@ function Index() {
                       <span className="flex shrink-0 items-center gap-2">
                         <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
                         {i.optional && <Badge variant="secondary">optional</Badge>}
+                        {i.check && (
+                          <Badge
+                            variant={i.check.status === "ok" ? "outline" : "destructive"}
+                            title={i.check.note}
+                          >
+                            {i.check.status === "ok" ? "verified" : i.check.note}
+                          </Badge>
+                        )}
                         <Badge variant={i.tool === "wget" ? "default" : "secondary"}>
                           {i.tool}
                         </Badge>
@@ -712,6 +720,13 @@ function Index() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {wgetItems.some((i) => i.check && i.check.status !== "ok") && (
+                    <p className="mb-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
+                      Some selected links failed the content check (wrong content type or
+                      suspiciously small). They are still included — unselect them above if the
+                      download saves a tiny HTML file instead of the media.
+                    </p>
+                  )}
                   <p className="mb-2 text-xs text-muted-foreground">
                     Copy this command and paste it into a terminal — it downloads every selected
                     file in the background, so it keeps running after you close the session.
