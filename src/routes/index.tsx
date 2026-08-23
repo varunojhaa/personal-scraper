@@ -556,10 +556,28 @@ function Index() {
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
               Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
-              inside lands in the file picker below, but only the <strong>Pixeldrain</strong> links
-              are ticked by default — other hosts stay deselected so you copy a pure Pixeldrain wget
-              command. Tick the rest manually if you want them.
+              inside lands in the file picker below, but only{" "}
+              <strong>{HOST_LABELS[dlcHost]}</strong> links are ticked by default — other hosts stay
+              deselected so you copy a pure {HOST_LABELS[dlcHost]} wget command. Tick the rest
+              manually if you want them.
             </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Auto-select:</span>
+              <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                {(["pixeldrain", "fileditch"] as const).map((h) => (
+                  <Button
+                    key={h}
+                    type="button"
+                    size="sm"
+                    variant={dlcHost === h ? "default" : "ghost"}
+                    className="h-7 px-3 text-xs"
+                    onClick={() => setDlcHost(h)}
+                  >
+                    {HOST_LABELS[h]}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <Input
                 type="file"
