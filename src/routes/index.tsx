@@ -197,9 +197,10 @@ function Index() {
    */
   const fitgirlMode = useMemo(() => items.some((i) => i.host === "fuckingfast"), [items]);
 
-  /** A single Pixeldrain link present in the top URL input only. */
+  /** A single Pixeldrain / FileDitch link present in the top URL input only. */
   const singlePdLink = useMemo(() => {
-    const RX = /https?:\/\/(?:www\.)?pixeldrain\.com\/[ul]\/[A-Za-z0-9]+/gi;
+    const RX =
+      /https?:\/\/(?:www\.)?(?:pixeldrain\.com\/[ul]\/[A-Za-z0-9]+|(?:[a-z0-9-]+\.)?fileditch(?:files)?\.(?:st|me|com)\/\S+\.[A-Za-z0-9]{2,5})/gi;
     const t = url.trim();
     if (!t) return null;
     const matches = t.match(RX);
@@ -208,7 +209,9 @@ function Index() {
 
   const visibleItems = useMemo(() => {
     let out = fitgirlMode
-      ? items.filter((i) => i.host === "fuckingfast" || i.host === "pixeldrain")
+      ? items.filter(
+          (i) => i.host === "fuckingfast" || i.host === "pixeldrain" || i.host === "fileditch",
+        )
       : items;
     if (!includeOptional) out = out.filter((i) => !i.optional);
     return out;
