@@ -403,7 +403,8 @@ function Index() {
           {singlePdLink && (
             <div className="mt-3 flex items-center gap-3">
               <p className="text-xs text-muted-foreground">
-                Single Pixeldrain link detected — copy a ready wget command for it.
+                Single {singlePdLink.includes("fileditch") ? "FileDitch" : "Pixeldrain"} link
+                detected — copy a ready wget command for it.
               </p>
               <Button
                 size="sm"
