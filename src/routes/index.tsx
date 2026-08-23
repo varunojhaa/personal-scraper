@@ -85,6 +85,8 @@ function Index() {
   const [includeOptional, setIncludeOptional] = useState(false);
   /** Unselected item keys — everything is selected unless it's in here. */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  /** Which host a decrypted .dlc auto-selects. */
+  const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -164,9 +166,9 @@ function Index() {
         );
         return;
       }
-      const pd = d.items.filter((i) => i.host === "pixeldrain").length;
+      const pd = d.items.filter((i) => i.host === dlcHost).length;
       toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} Pixeldrain selected, ${
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} ${HOST_LABELS[dlcHost]} selected, ${
           d.items.length - pd
         } other host${d.items.length - pd === 1 ? "" : "s"} hidden`,
       );
