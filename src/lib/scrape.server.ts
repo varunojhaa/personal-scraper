@@ -106,12 +106,12 @@ async function resolveFileDitchItems(found: Map<string, PixeldrainItem>) {
 
         if (!directUrl) {
           const fields = fileDitchPowFields(html);
-          const challenge = fields.pow_challenge;
-          const difficulty = Number(fields.pow_diff);
+          const challenge = fields["pow_challenge"];
+          const difficulty = Number(fields["pow_diff"]);
           if (!challenge || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 28) {
             throw new Error("FileDitch did not provide a usable download link");
           }
-          fields.pow_nonce = await solveFileDitchPow(challenge, difficulty);
+          fields["pow_nonce"] = await solveFileDitchPow(challenge, difficulty);
           const verified = await fetch(first.url || item.pageUrl, {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
