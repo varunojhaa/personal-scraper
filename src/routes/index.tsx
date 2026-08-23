@@ -180,7 +180,7 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Could not build the wget command"),
     onSuccess: (d) => {
       if (d.items.length === 0) {
-        toast.error("No Pixeldrain link found in that input");
+        toast.error("No Pixeldrain or FileDitch link found in that input");
         return;
       }
       merge(d);
@@ -310,6 +310,12 @@ function Index() {
       setPending((prev) =>
         prev.some((p) => p.url === target) ? prev : [...prev, { url: target, status: "open-me" }],
       );
+      return;
+    }
+    // A direct file link (Pixeldrain, FileDitch, …) is not a page to crawl —
+    // resolve it straight into an item instead of downloading the file.
+    if (isFileHostUrl(target)) {
+      pasteMutation.mutate({ content: target, label: target });
       return;
     }
     scrapeMutation.mutate(target);
