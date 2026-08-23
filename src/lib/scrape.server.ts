@@ -51,6 +51,92 @@ async function namePixeldrainItems(found: Map<string, PixeldrainItem>) {
   );
 }
 
+function fileDitchPowFields(html: string) {
+  const fields: Record<string, string> = {};
+  for (const match of html.matchAll(/<input\b[^>]*\bname=["']([^"']+)["'][^>]*\bvalue=["']([^"']*)["'][^>]*>/gi)) {
+    const name = match[1];
+    if (name) fields[name] = match[2] ?? "";
+  }
+  return fields;
+}
+
+function leadingZeroBits(bytes: Uint8Array, count: number) {
+  const fullBytes = Math.floor(count / 8);
+  for (let index = 0; index < fullBytes; index += 1) {
+    if (bytes[index] !== 0) return false;
+  }
+  const remaining = count % 8;
+  return remaining === 0 || ((bytes[fullBytes] ?? 255) >> (8 - remaining)) === 0;
+}
+
+async function solveFileDitchPow(challenge: string, difficulty: number) {
+  const encoder = new TextEncoder();
+  for (let nonce = 0; nonce < 5_000_000; nonce += 1) {
+    const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${challenge}:${nonce}`));
+    if (leadingZeroBits(new Uint8Array(digest), difficulty)) return String(nonce);
+  }
+  throw new Error("FileDitch browser verification could not be completed");
+}
+
+function fileDitchDirectUrl(html: string) {
+  const match = html.match(/var\s+u\s*=\s*(\[[\s\S]*?\])\.join\(["']{2}\)/i);
+  if (!match?.[1]) return "";
+  try {
+    const parts = JSON.parse(match[1]) as unknown;
+    return Array.isArray(parts) && parts.every((part) => typeof part === "string")
+      ? parts.join("")
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+/** FileDitch share URLs now return a small HTML page. Complete its lightweight
+ * browser check and extract the temporary, signed media URL embedded in it. */
+async function resolveFileDitchItems(found: Map<string, PixeldrainItem>) {
+  await Promise.all(
+    [...found.values()]
+      .filter((item) => item.host === "fileditch")
+      .map(async (item) => {
+        const headers = { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" };
+        const first = await fetch(item.pageUrl, { headers, redirect: "follow" });
+        if (!first.ok) throw new Error(`FileDitch page failed (HTTP ${first.status})`);
+        let html = await first.text();
+        let directUrl = fileDitchDirectUrl(html);
+
+        if (!directUrl) {
+          const fields = fileDitchPowFields(html);
+          const challenge = fields["pow_challenge"];
+          const difficulty = Number(fields["pow_diff"]);
+          if (!challenge || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 28) {
+            throw new Error("FileDitch did not provide a usable download link");
+          }
+          fields["pow_nonce"] = await solveFileDitchPow(challenge, difficulty);
+          const verified = await fetch(first.url || item.pageUrl, {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(fields).toString(),
+            redirect: "follow",
+          });
+          if (!verified.ok) {
+            throw new Error(`FileDitch verification failed (HTTP ${verified.status})`);
+          }
+          html = await verified.text();
+          directUrl = fileDitchDirectUrl(html);
+        }
+
+        if (!directUrl.startsWith("https://")) {
+          throw new Error("FileDitch's direct download link could not be resolved");
+        }
+        item.directUrl = directUrl;
+      }),
+  );
+}
+
+async function resolveItemMetadata(found: Map<string, PixeldrainItem>) {
+  await Promise.all([namePixeldrainItems(found), resolveFileDitchItems(found)]);
+}
+
 export async function scrapeUrl(
   url: string,
   deep: boolean,
@@ -104,7 +190,7 @@ export async function scrapeUrl(
     }
   }
 
-  await namePixeldrainItems(found);
+  await resolveItemMetadata(found);
 
   return {
     sourceUrl: first.finalUrl,
@@ -173,7 +259,7 @@ export async function resolveDlc(
     }
   }
 
-  await namePixeldrainItems(found);
+  await resolveItemMetadata(found);
 
   return {
     sourceUrl: filename,
@@ -215,7 +301,7 @@ export async function resolvePasted(input: string, label: string): Promise<Scrap
     }
   }
 
-  await namePixeldrainItems(found);
+  await resolveItemMetadata(found);
 
   return {
     sourceUrl: label || (looksLikeSingleUrl ? trimmed : "pasted content"),
