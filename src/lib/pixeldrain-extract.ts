@@ -16,8 +16,8 @@ export type PixeldrainItem = {
   /** Result of the post-scrape check on directUrl (content type + size). */
   check?: {
     status: "ok" | "suspect" | "unreachable";
-    contentType?: string;
-    size?: number;
+    contentType?: string | undefined;
+    size?: number | undefined;
     note: string;
   };
 };
