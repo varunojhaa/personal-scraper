@@ -36,6 +36,7 @@ import {
   buildIdmList,
   buildIdmEf2,
   isProtected,
+  isFileHostUrl,
   HOST_LABELS,
   type PixeldrainItem,
   type ScrapeResult,
