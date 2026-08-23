@@ -686,6 +686,14 @@ function Index() {
                       <span className="flex shrink-0 items-center gap-2">
                         <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
                         {i.optional && <Badge variant="secondary">optional</Badge>}
+                        {i.check && (
+                          <Badge
+                            variant={i.check.status === "ok" ? "outline" : "destructive"}
+                            title={i.check.note}
+                          >
+                            {i.check.status === "ok" ? "verified" : i.check.note}
+                          </Badge>
+                        )}
                         <Badge variant={i.tool === "wget" ? "default" : "secondary"}>
                           {i.tool}
                         </Badge>
