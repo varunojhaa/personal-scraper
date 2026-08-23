@@ -85,6 +85,8 @@ function Index() {
   const [includeOptional, setIncludeOptional] = useState(false);
   /** Unselected item keys — everything is selected unless it's in here. */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  /** Which host a decrypted .dlc auto-selects. */
+  const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -149,12 +151,11 @@ function Index() {
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
       merge(d);
-      // Only auto-select Pixeldrain links from a decrypted container; every
-      // other host in the .dlc is deselected so the wget command targets just
-      // the Pixeldrain files.
+      // Only auto-select links from the chosen provider; every other host in
+      // the .dlc is deselected so the wget command targets just those files.
       setExcluded((prevEx) => {
         const next = new Set(prevEx);
-        for (const i of d.items) if (i.host !== "pixeldrain") next.add(keyOf(i));
+        for (const i of d.items) if (i.host !== dlcHost) next.add(keyOf(i));
         return next;
       });
       if (d.items.length === 0) {
@@ -165,9 +166,9 @@ function Index() {
         );
         return;
       }
-      const pd = d.items.filter((i) => i.host === "pixeldrain").length;
+      const pd = d.items.filter((i) => i.host === dlcHost).length;
       toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} Pixeldrain selected, ${
+        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} ${HOST_LABELS[dlcHost]} selected, ${
           d.items.length - pd
         } other host${d.items.length - pd === 1 ? "" : "s"} hidden`,
       );
@@ -196,9 +197,10 @@ function Index() {
    */
   const fitgirlMode = useMemo(() => items.some((i) => i.host === "fuckingfast"), [items]);
 
-  /** A single Pixeldrain link present in the top URL input only. */
+  /** A single Pixeldrain / FileDitch link present in the top URL input only. */
   const singlePdLink = useMemo(() => {
-    const RX = /https?:\/\/(?:www\.)?pixeldrain\.com\/[ul]\/[A-Za-z0-9]+/gi;
+    const RX =
+      /https?:\/\/(?:www\.)?(?:pixeldrain\.com\/[ul]\/[A-Za-z0-9]+|(?:[a-z0-9-]+\.)?fileditch(?:files)?\.(?:st|me|com)\/\S+\.[A-Za-z0-9]{2,5})/gi;
     const t = url.trim();
     if (!t) return null;
     const matches = t.match(RX);
@@ -207,7 +209,9 @@ function Index() {
 
   const visibleItems = useMemo(() => {
     let out = fitgirlMode
-      ? items.filter((i) => i.host === "fuckingfast" || i.host === "pixeldrain")
+      ? items.filter(
+          (i) => i.host === "fuckingfast" || i.host === "pixeldrain" || i.host === "fileditch",
+        )
       : items;
     if (!includeOptional) out = out.filter((i) => !i.optional);
     return out;
@@ -552,10 +556,28 @@ function Index() {
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
               Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
-              inside lands in the file picker below, but only the <strong>Pixeldrain</strong> links
-              are ticked by default — other hosts stay deselected so you copy a pure Pixeldrain wget
-              command. Tick the rest manually if you want them.
+              inside lands in the file picker below, but only{" "}
+              <strong>{HOST_LABELS[dlcHost]}</strong> links are ticked by default — other hosts stay
+              deselected so you copy a pure {HOST_LABELS[dlcHost]} wget command. Tick the rest
+              manually if you want them.
             </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Auto-select:</span>
+              <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                {(["pixeldrain", "fileditch"] as const).map((h) => (
+                  <Button
+                    key={h}
+                    type="button"
+                    size="sm"
+                    variant={dlcHost === h ? "default" : "ghost"}
+                    className="h-7 px-3 text-xs"
+                    onClick={() => setDlcHost(h)}
+                  >
+                    {HOST_LABELS[h]}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <Input
                 type="file"

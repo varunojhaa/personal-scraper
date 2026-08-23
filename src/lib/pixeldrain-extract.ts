@@ -1,4 +1,4 @@
-export type HostKey = "pixeldrain" | "fuckingfast" | "datanodes" | "filekeeper";
+export type HostKey = "pixeldrain" | "fileditch" | "fuckingfast" | "datanodes" | "filekeeper";
 
 export type PixeldrainItem = {
   id: string;
@@ -25,6 +25,7 @@ export type ScrapeResult = {
 
 export const HOST_LABELS: Record<HostKey, string> = {
   pixeldrain: "Pixeldrain",
+  fileditch: "FileDitch",
   fuckingfast: "FuckingFast",
   datanodes: "DataNodes",
   filekeeper: "FileKeeper",
@@ -70,6 +71,16 @@ const RULES: Rule[] = [
     kind: "list",
     page: (id) => `https://pixeldrain.com/l/${id}`,
     direct: (id) => `https://pixeldrain.com/api/list/${id}/zip`,
+    tool: "wget",
+  },
+  {
+    // Direct FileDitch file links, e.g.
+    // https://fileditchfiles.st/beta24/<hash>/Some.File.mkv
+    re: /((?:[a-z0-9-]+\.)?fileditch(?:files)?\.(?:st|me|com)\/[^\s"'<>]{4,300}\.[A-Za-z0-9]{2,5})/gi,
+    host: "fileditch",
+    kind: "file",
+    page: (id) => `https://${id}`,
+    direct: (id) => `https://${id}`,
     tool: "wget",
   },
   {
@@ -192,7 +203,9 @@ export function isProtected(url: string) {
 
 /** Every item this file host recognises. */
 export function isFileHostUrl(url: string) {
-  return /(?:pixeldrain\.com|fuckingfast\.(?:co|net)|datanodes\.to|filekeeper\.net)/i.test(url);
+  return /(?:pixeldrain\.com|fileditch(?:files)?\.(?:st|me|com)|fuckingfast\.(?:co|net)|datanodes\.to|filekeeper\.net)/i.test(
+    url,
+  );
 }
 
 /**
