@@ -401,14 +401,11 @@ export function exportName(
     .slice(0, 50) || "downloads";
 
   const n = items.length;
-  const d = new Date();
-  const pad = (x: number) => String(x).padStart(2, "0");
-  const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
   // Single-file exports keep the clean file name; multi-file exports append
-  // the count + timestamp to stay unique and descriptive.
+  // the count so they stay descriptive without random trailing numbers.
   return n === 1
     ? `${slug}.${ext}`
-    : `${slug}-${n}files-${ts}.${ext}`;
+    : `${slug}-${n}files.${ext}`;
 }
 
 /** Longest common leading token-prefix shared by every entry (case-insensitive). */
