@@ -38,6 +38,7 @@ import {
   buildShellScript,
   buildIdmList,
   buildIdmEf2,
+  exportName,
   isProtected,
   isFileHostUrl,
   validateManualInput,
