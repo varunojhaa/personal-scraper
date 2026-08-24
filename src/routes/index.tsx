@@ -692,16 +692,24 @@ function Index() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Input
+              <label
+                htmlFor="dlc-file"
+                className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-primary/60 bg-primary/10 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <Upload className="h-4 w-4" />
+                Choose .dlc file
+              </label>
+              <input
+                id="dlc-file"
                 type="file"
                 accept=".dlc,.txt"
+                className="sr-only"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) dlcMutation.mutate(file);
                   e.target.value = "";
                 }}
                 disabled={dlcMutation.isPending}
-                className="h-11 max-w-sm cursor-pointer file:mr-3 file:text-sm"
               />
               {dlcMutation.isPending && (
                 <span className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -709,6 +717,7 @@ function Index() {
                 </span>
               )}
             </div>
+
           </CardContent>
         </Card>
 
