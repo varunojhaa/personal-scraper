@@ -357,36 +357,78 @@ export function validateManualInput(raw: string): string | null {
 }
 
 /**
- * Build a meaningful + unique export filename from the resolved items.
- * Derives a slug from the source page hostname (or the URL the user pasted),
- * then appends the file count and a timestamp so two exports never collide.
+ * Build a meaningful + unique export filename derived from the actual file
+ * names being downloaded. For a single file it uses that file's name; for
+ * multiple files it finds their longest common prefix (e.g. a repack name)
+ * and appends the file count + timestamp so exports never collide.
  *
- *   fitgirl-repacks-site-12files-20260824-1530.sh
- *   pixeldrain-com-1file-20260824-1530.ef2
+ *   Cyberpunk.2077.Repack.sh
+ *   Red-Dead-Redemption-2-12files-20260824-1530.ef2
  */
 export function exportName(
   items: PixeldrainItem[],
   fallback: string,
   ext: string,
 ): string {
-  let host = "";
-  try {
-    const src = items[0]?.foundOn || fallback || "";
-    if (src) host = new URL(src).hostname.replace(/^www\./, "");
-  } catch {
-    host = fallback || "";
+  const names = items
+    .map((i) => i.filename || i.id || "")
+    .filter(Boolean)
+    .map((n) => n.replace(/\.[^./\\]+$/, "")); // strip extension
+
+  let slug = "";
+  if (names.length === 1) {
+    slug = names[0];
+  } else if (names.length > 1) {
+    slug = commonPrefix(names);
   }
-  const slug =
-    (host || "downloads")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "downloads";
+
+  if (!slug) {
+    // Fall back to the source hostname.
+    let host = "";
+    try {
+      const src = items[0]?.foundOn || fallback || "";
+      if (src) host = new URL(src).hostname.replace(/^www\./, "");
+    } catch {
+      host = fallback || "";
+    }
+    slug = host || "downloads";
+  }
+
+  slug = slug
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50) || "downloads";
+
   const n = items.length;
   const d = new Date();
   const pad = (x: number) => String(x).padStart(2, "0");
   const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  return `${slug}-${n}file${n === 1 ? "" : "s"}-${ts}.${ext}`;
+  // Single-file exports keep the clean file name; multi-file exports append
+  // the count + timestamp to stay unique and descriptive.
+  return n === 1
+    ? `${slug}.${ext}`
+    : `${slug}-${n}files-${ts}.${ext}`;
+}
+
+/** Longest common leading token-prefix shared by every entry (case-insensitive). */
+function commonPrefix(names: string[]): string {
+  if (names.length < 2) return names[0] || "";
+  const norm = names.map((n) => n.toLowerCase());
+  // Split on typical separators so a shared title is detected even when the
+  // trailing tokens differ (e.g. "Game.Repack.part1" / "Game.Repack.part2").
+  const tokenize = (s: string) => s.split(/[\s._\-]+/).filter(Boolean);
+  const first = tokenize(norm[0]);
+  let i = 0;
+  outer: for (; i < first.length; i++) {
+    for (let j = 1; j < norm.length; j++) {
+      if (tokenize(norm[j])[i] !== first[i]) break outer;
+    }
+  }
+  // Keep at least one token; if only a trivial prefix matches, fall back to the
+  // first file's name (minus extension) as the representative slug.
+  const prefix = first.slice(0, Math.max(i, 1)).join("-");
+  return prefix || names[0];
 }
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
