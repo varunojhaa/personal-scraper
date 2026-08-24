@@ -69,14 +69,23 @@ function leadingZeroBits(bytes: Uint8Array, count: number) {
   return remaining === 0 || ((bytes[fullBytes] ?? 255) >> (8 - remaining)) === 0;
 }
 
+/** Hard limits so the hosted runtime never blows its CPU budget solving a
+ * challenge that turned out to be too hard. */
+const POW_MAX_DIFFICULTY = 18;
+const POW_MAX_ATTEMPTS = 60_000;
+const POW_TIME_BUDGET_MS = 3_000;
+
 async function solveFileDitchPow(challenge: string, difficulty: number) {
   const encoder = new TextEncoder();
-  for (let nonce = 0; nonce < 5_000_000; nonce += 1) {
+  const startedAt = Date.now();
+  for (let nonce = 0; nonce < POW_MAX_ATTEMPTS; nonce += 1) {
+    if ((nonce & 1023) === 0 && Date.now() - startedAt > POW_TIME_BUDGET_MS) break;
     const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${challenge}:${nonce}`));
     if (leadingZeroBits(new Uint8Array(digest), difficulty)) return String(nonce);
   }
-  throw new Error("FileDitch browser verification could not be completed");
+  throw new Error("FileDitch browser verification took too long — open the link once in a browser");
 }
+
 
 function fileDitchDirectUrl(html: string) {
   const match = html.match(/var\s+u\s*=\s*(\[[\s\S]*?\])\.join\(["']{2}\)/i);
