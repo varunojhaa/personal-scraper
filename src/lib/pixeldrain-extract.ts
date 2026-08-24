@@ -356,6 +356,39 @@ export function validateManualInput(raw: string): string | null {
   return `Unsupported link. This scraper only understands ${Object.values(HOST_LABELS).join(", ")} links (or raw page HTML that contains them).`;
 }
 
+/**
+ * Build a meaningful + unique export filename from the resolved items.
+ * Derives a slug from the source page hostname (or the URL the user pasted),
+ * then appends the file count and a timestamp so two exports never collide.
+ *
+ *   fitgirl-repacks-site-12files-20260824-1530.sh
+ *   pixeldrain-com-1file-20260824-1530.ef2
+ */
+export function exportName(
+  items: PixeldrainItem[],
+  fallback: string,
+  ext: string,
+): string {
+  let host = "";
+  try {
+    const src = items[0]?.foundOn || fallback || "";
+    if (src) host = new URL(src).hostname.replace(/^www\./, "");
+  } catch {
+    host = fallback || "";
+  }
+  const slug =
+    (host || "downloads")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "downloads";
+  const n = items.length;
+  const d = new Date();
+  const pad = (x: number) => String(x).padStart(2, "0");
+  const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  return `${slug}-${n}file${n === 1 ? "" : "s"}-${ts}.${ext}`;
+}
+
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
 export function buildIdmList(items: PixeldrainItem[]) {
 
