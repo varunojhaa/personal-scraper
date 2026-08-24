@@ -147,8 +147,17 @@ async function resolveFileDitchItems(found: Map<string, PixeldrainItem>) {
 }
 
 
-async function resolveItemMetadata(found: Map<string, PixeldrainItem>) {
-  await Promise.all([namePixeldrainItems(found), resolveFileDitchItems(found)]);
+async function resolveItemMetadata(
+  found: Map<string, PixeldrainItem>,
+  hostFilter?: "pixeldrain" | "fileditch",
+) {
+  // When a single host is selected from a .dlc, only resolve that host and
+  // skip the others — FileDitch's browser check is CPU-heavy, so avoiding
+  // it when the user only wants Pixeldrain keeps the worker within budget.
+  const tasks: Promise<unknown>[] = [];
+  if (!hostFilter || hostFilter === "pixeldrain") tasks.push(namePixeldrainItems(found));
+  if (!hostFilter || hostFilter === "fileditch") tasks.push(resolveFileDitchItems(found));
+  await Promise.all(tasks);
 }
 
 export async function scrapeUrl(
