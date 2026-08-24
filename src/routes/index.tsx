@@ -828,13 +828,14 @@ function Index() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        downloadText(buildShellScript(wgetItems), "download.sh", "download.sh")
-                      }
+                      onClick={() => {
+                        const name = exportName(wgetItems, url, "sh");
+                        downloadText(buildShellScript(wgetItems), name, name);
+                      }}
                     >
                       <FileDown className="h-4 w-4" /> download.sh
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadText(command, "wget-command.txt", "wget-command.txt")}>
+                    <Button variant="outline" size="sm" onClick={() => downloadText(command, exportName(wgetItems, url, "txt"), exportName(wgetItems, url, "txt"))}>
                       <FileDown className="h-4 w-4" /> .txt
                     </Button>
 
