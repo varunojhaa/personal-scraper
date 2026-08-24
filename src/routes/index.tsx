@@ -333,14 +333,15 @@ function Index() {
   };
 
   const downloadEf2 = () => {
+    const name = exportName(idmItems, url, "ef2");
     const blob = new Blob([buildIdmEf2(idmItems)], { type: "text/plain" });
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
-    a.download = "downloads-idm.ef2";
+    a.download = name;
     a.click();
     URL.revokeObjectURL(href);
-    toast.success("Exported downloads-idm.ef2");
+    toast.success(`Exported ${name}`);
   };
 
   const downloadText = (content: string, filename: string, label: string) => {
