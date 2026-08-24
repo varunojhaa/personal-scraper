@@ -806,10 +806,20 @@ function Index() {
               <Card>
                 <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
                   <CardTitle className="text-base">wget command ({wgetItems.length})</CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        downloadText(buildShellScript(wgetItems), "download.sh", "download.sh")
+                      }
+                    >
+                      <FileDown className="h-4 w-4" /> download.sh
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => downloadText(command, "wget-command.txt", "wget-command.txt")}>
                       <FileDown className="h-4 w-4" /> .txt
                     </Button>
+
                     <Button variant="secondary" size="sm" onClick={copy}>
                       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copied ? "Copied" : "Copy"}
