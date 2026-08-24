@@ -233,6 +233,7 @@ export async function resolveDlc(
   base64Content: string,
   filename: string,
   follow: boolean,
+  hostFilter?: "pixeldrain" | "fileditch",
 ): Promise<ScrapeResult> {
   const found = new Map<string, PixeldrainItem>();
   const pagesScanned: string[] = [];
