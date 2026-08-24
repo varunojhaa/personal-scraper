@@ -352,17 +352,34 @@ function Index() {
   };
 
   const submitPaste = (label: string) => {
-    if (pasteValue.trim().length < 3) return;
+    const problem = validateManualInput(pasteValue);
+    if (problem) {
+      setStatus(null);
+      toast.error(problem);
+      return;
+    }
     pasteMutation.mutate({ content: pasteValue, label });
   };
 
   const startScrape = () => {
     const target = url.trim();
-    if (!target) return;
+    if (!target) {
+      toast.error("Paste a page or file URL first.");
+      return;
+    }
+    if (!/^https?:\/\/[^\s.]+\.[^\s]{2,}/i.test(target)) {
+      toast.error(
+        /^https?:\/\//i.test(target)
+          ? "That doesn't look like a complete web address."
+          : "Add https:// in front of that address.",
+      );
+      return;
+    }
     if (isProtected(target)) {
       toast.error(
         "That host is captcha-protected — use the manual paste or .dlc upload below instead",
       );
+      setStatus("Captcha-protected page queued below — open it and paste the result.");
       setPending((prev) =>
         prev.some((p) => p.url === target) ? prev : [...prev, { url: target, status: "open-me" }],
       );
@@ -384,7 +401,9 @@ function Index() {
     setActivePaste(null);
     setPasteValue("");
     setExcluded(new Set());
+    setStatus(null);
   };
+
 
   return (
     <main className="min-h-screen bg-background">
