@@ -38,6 +38,7 @@ import {
   buildShellScript,
   buildIdmList,
   buildIdmEf2,
+  exportName,
   isProtected,
   isFileHostUrl,
   validateManualInput,
@@ -332,14 +333,15 @@ function Index() {
   };
 
   const downloadEf2 = () => {
+    const name = exportName(idmItems, url, "ef2");
     const blob = new Blob([buildIdmEf2(idmItems)], { type: "text/plain" });
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
-    a.download = "downloads-idm.ef2";
+    a.download = name;
     a.click();
     URL.revokeObjectURL(href);
-    toast.success("Exported downloads-idm.ef2");
+    toast.success(`Exported ${name}`);
   };
 
   const downloadText = (content: string, filename: string, label: string) => {
@@ -826,13 +828,14 @@ function Index() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        downloadText(buildShellScript(wgetItems), "download.sh", "download.sh")
-                      }
+                      onClick={() => {
+                        const name = exportName(wgetItems, url, "sh");
+                        downloadText(buildShellScript(wgetItems), name, name);
+                      }}
                     >
                       <FileDown className="h-4 w-4" /> download.sh
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadText(command, "wget-command.txt", "wget-command.txt")}>
+                    <Button variant="outline" size="sm" onClick={() => downloadText(command, exportName(wgetItems, url, "txt"), exportName(wgetItems, url, "txt"))}>
                       <FileDown className="h-4 w-4" /> .txt
                     </Button>
 
@@ -869,7 +872,7 @@ function Index() {
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copiedIdm ? "Copied" : "Copy URLs"}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadText(idmList, "idm-urls.txt", "idm-urls.txt")}>
+                    <Button variant="outline" size="sm" onClick={() => downloadText(idmList, exportName(idmItems, url, "txt"), exportName(idmItems, url, "txt"))}>
                       <FileDown className="h-4 w-4" /> .txt
                     </Button>
                     <Button variant="outline" size="sm" onClick={downloadEf2}>
