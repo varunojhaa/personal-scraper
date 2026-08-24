@@ -219,7 +219,7 @@ function shellQuote(name: string) {
 
 function fileDitchCommand(item: PixeldrainItem, common: string) {
   const filename = item.filename ?? "fileditch-download";
-  const python = `import hashlib,html as H,json,re,subprocess,sys,urllib.parse,urllib.request
+  const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.parse,urllib.request
 url,name=sys.argv[1],sys.argv[2]
 ua=${JSON.stringify(UA)}
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
@@ -247,9 +247,8 @@ if not media:
     final,page=request(final,urllib.parse.urlencode(fields).encode())
     media=direct(page)
 if not media.startswith("https://"): raise SystemExit("FileDitch did not return a download URL")
-raise SystemExit(subprocess.call(["wget",${JSON.stringify(common)},"-O",name,"--user-agent="+ua,"--referer="+url,media]))`;
-  const launcher = `exec(${JSON.stringify(python)})`;
-  return `python3 -c ${shellQuote(launcher)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)}`;
+raise SystemExit(subprocess.call(["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+url,media]))`;
+  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)}`;
 }
 
 export function buildWget(items: PixeldrainItem[]) {
