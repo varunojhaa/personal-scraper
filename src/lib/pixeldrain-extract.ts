@@ -377,7 +377,7 @@ export function exportName(
 
   let slug = "";
   if (names.length === 1) {
-    slug = names[0];
+    slug = names[0] ?? "";
   } else if (names.length > 1) {
     slug = commonPrefix(names);
   }
