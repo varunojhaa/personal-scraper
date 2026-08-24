@@ -13,13 +13,6 @@ export type PixeldrainItem = {
   tool: "wget" | "idm";
   /** True for bonus/selective files you can skip (fg-optional-*, fg-selective-*, …). */
   optional?: boolean;
-  /** Result of the post-scrape check on directUrl (content type + size). */
-  check?: {
-    status: "ok" | "suspect" | "unreachable";
-    contentType?: string | undefined;
-    size?: number | undefined;
-    note: string;
-  };
 };
 
 export type ScrapeResult = {

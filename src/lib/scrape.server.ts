@@ -133,73 +133,8 @@ async function resolveFileDitchItems(found: Map<string, PixeldrainItem>) {
   );
 }
 
-/** Smallest response we treat as a real media file rather than an error /
- * verification page. Anything under this is almost certainly HTML. */
-const MIN_BYTES = 64 * 1024;
-
-/**
- * Post-scrape sanity check: ask the host for just the first byte of the
- * resolved direct URL and confirm it answers with binary media of a
- * non-trivial size. Catches the classic failure where a host serves a small
- * HTML verification page and wget happily saves it as a .mkv.
- */
-async function checkDirectUrls(found: Map<string, PixeldrainItem>) {
-  await Promise.all(
-    [...found.values()].map(async (item) => {
-      if (!item.directUrl) return;
-      const headers: Record<string, string> = {
-        "User-Agent": UA,
-        Accept: "*/*",
-        Range: "bytes=0-0",
-      };
-      if (item.host !== "pixeldrain") headers["Referer"] = item.pageUrl;
-      try {
-        const res = await fetch(item.directUrl, { headers, redirect: "follow" });
-        await res.body?.cancel();
-        const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-        const range = res.headers.get("content-range") ?? "";
-        const total = Number(range.split("/")[1]);
-        const length = Number(res.headers.get("content-length"));
-        const size = Number.isFinite(total) && total > 0 ? total : Number.isFinite(length) ? length : undefined;
-
-        if (!res.ok && res.status !== 206) {
-          item.check = { status: "unreachable", contentType, size, note: `Host answered HTTP ${res.status}` };
-          return;
-        }
-        if (contentType.includes("html") || contentType.startsWith("text/")) {
-          item.check = {
-            status: "suspect",
-            contentType,
-            size,
-            note: `Returns ${contentType || "text"} — likely a verification or error page, not the file`,
-          };
-          return;
-        }
-        if (size !== undefined && size < MIN_BYTES) {
-          item.check = {
-            status: "suspect",
-            contentType,
-            size,
-            note: `Only ${size} bytes — too small to be the real file`,
-          };
-          return;
-        }
-        item.check = {
-          status: "ok",
-          contentType,
-          size,
-          note: size ? `${contentType || "binary"} · ${(size / 1024 / 1024).toFixed(1)} MB` : contentType || "binary",
-        };
-      } catch {
-        item.check = { status: "unreachable", note: "Could not reach the direct link" };
-      }
-    }),
-  );
-}
-
 async function resolveItemMetadata(found: Map<string, PixeldrainItem>) {
   await Promise.all([namePixeldrainItems(found), resolveFileDitchItems(found)]);
-  await checkDirectUrls(found);
 }
 
 export async function scrapeUrl(
