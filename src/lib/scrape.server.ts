@@ -283,7 +283,7 @@ export async function resolveDlc(
     }
   }
 
-  await resolveItemMetadata(found);
+  await resolveItemMetadata(found, hostFilter);
 
   return {
     sourceUrl: filename,
