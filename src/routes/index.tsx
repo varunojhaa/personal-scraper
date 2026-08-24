@@ -129,6 +129,12 @@ function Index() {
     mutationFn: (vars: { content: string; label: string }) => resolvePaste({ data: vars }),
     onError: (e: Error) => toast.error(e.message || "Could not read pasted content"),
     onSuccess: (d, vars) => {
+      // A fresh manual paste replaces the previous session: clear the old file
+      // picker, selection and command before merging the new links.
+      setItems([]);
+      setPending([]);
+      setScannedCount(0);
+      setExcluded(new Set());
       merge(d);
       if (d.items.length === 0) {
         toast.error("No download links in that paste");
