@@ -356,8 +356,9 @@ export function validateManualInput(raw: string): string | null {
   return `Unsupported link. This scraper only understands ${Object.values(HOST_LABELS).join(", ")} links (or raw page HTML that contains them).`;
 }
 
-
+/** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
 export function buildIdmList(items: PixeldrainItem[]) {
+
   return items.map((i) => i.directUrl).join("\n");
 }
 
