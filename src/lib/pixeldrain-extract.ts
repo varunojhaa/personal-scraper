@@ -428,7 +428,7 @@ function commonPrefix(names: string[]): string {
   // Keep at least one token; if only a trivial prefix matches, fall back to the
   // first file's name (minus extension) as the representative slug.
   const prefix = first.slice(0, Math.max(i, 1)).join("-");
-  return prefix || names[0] ?? "";
+  return prefix || (names[0] ?? "");
 }
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
