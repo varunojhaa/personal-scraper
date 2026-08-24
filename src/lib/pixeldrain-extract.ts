@@ -413,22 +413,22 @@ export function exportName(
 
 /** Longest common leading token-prefix shared by every entry (case-insensitive). */
 function commonPrefix(names: string[]): string {
-  if (names.length < 2) return names[0] || "";
+  if (names.length < 2) return names[0] ?? "";
   const norm = names.map((n) => n.toLowerCase());
   // Split on typical separators so a shared title is detected even when the
   // trailing tokens differ (e.g. "Game.Repack.part1" / "Game.Repack.part2").
   const tokenize = (s: string) => s.split(/[\s._\-]+/).filter(Boolean);
-  const first = tokenize(norm[0]);
+  const first = tokenize(norm[0] ?? "");
   let i = 0;
   outer: for (; i < first.length; i++) {
     for (let j = 1; j < norm.length; j++) {
-      if (tokenize(norm[j])[i] !== first[i]) break outer;
+      if (tokenize(norm[j] ?? "")[i] !== first[i]) break outer;
     }
   }
   // Keep at least one token; if only a trivial prefix matches, fall back to the
   // first file's name (minus extension) as the representative slug.
   const prefix = first.slice(0, Math.max(i, 1)).join("-");
-  return prefix || names[0];
+  return prefix || names[0] ?? "";
 }
 
 /** Plain URL list — paste into IDM › Tasks › Add Batch Download from Clipboard. */
