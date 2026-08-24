@@ -706,13 +706,18 @@ function Index() {
                 type="file"
                 accept=".dlc,.txt"
                 className="sr-only"
+                // Reset on click (not in onChange) so re-picking the same file
+                // still fires, without invalidating the File before it's read.
+                onClick={(e) => {
+                  (e.target as HTMLInputElement).value = "";
+                }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) dlcMutation.mutate(file);
-                  e.target.value = "";
                 }}
                 disabled={dlcMutation.isPending}
               />
+
               {dlcMutation.isPending && (
                 <span className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Decrypting container…
