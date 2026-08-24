@@ -217,6 +217,40 @@ function shellQuote(name: string) {
   return `'${name.replace(/'/g, "'\\''")}'`;
 }
 
+function fileDitchCommand(item: PixeldrainItem, common: string) {
+  const filename = item.filename ?? "fileditch-download";
+  const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.parse,urllib.request
+url,name=sys.argv[1],sys.argv[2]
+ua=${JSON.stringify(UA)}
+opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+def request(target,data=None):
+    req=urllib.request.Request(target,data=data,headers={"User-Agent":ua,"Accept":"text/html,application/xhtml+xml,*/*"})
+    with opener.open(req,timeout=60) as response:
+        return response.geturl(),response.read().decode("utf-8","replace")
+def direct(page):
+    match=re.search(r"var\\s+u\\s*=\\s*(\\[[\\s\\S]*?\\])\\.join\\([\\\"']{2}\\)",page,re.I)
+    return "".join(json.loads(match.group(1))) if match else ""
+final,page=request(url)
+media=direct(page)
+if not media:
+    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\\"']([^\\\"']+)[\\\"'][^>]*\\bvalue=[\\\"']([^\\\"']*)[\\\"'][^>]*>",page,re.I)}
+    challenge=fields.get("pow_challenge","")
+    difficulty=int(fields.get("pow_diff","0"))
+    if not challenge or difficulty<1: raise SystemExit("FileDitch verification challenge was not found")
+    nonce=0
+    while True:
+        digest=hashlib.sha256((challenge+":"+str(nonce)).encode()).digest()
+        bits="".join(format(byte,"08b") for byte in digest[:((difficulty+7)//8)])
+        if bits.startswith("0"*difficulty): break
+        nonce+=1
+    fields["pow_nonce"]=str(nonce)
+    final,page=request(final,urllib.parse.urlencode(fields).encode())
+    media=direct(page)
+if not media.startswith("https://"): raise SystemExit("FileDitch did not return a download URL")
+raise SystemExit(subprocess.call(["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+url,media]))`;
+  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)}`;
+}
+
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
   // Common flags: retry on stalls instead of hanging forever, resume partial
@@ -235,7 +269,9 @@ export function buildWget(items: PixeldrainItem[]) {
     const cmd =
       i.host === "pixeldrain"
         ? `wget${cd} ${common}${out} "${i.directUrl}"`
-        : `wget${cd} ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
+        : i.host === "fileditch"
+          ? fileDitchCommand(i, common)
+          : `wget${cd} ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
     // Finished files leave a .done marker, so a re-run skips them instead of
     // re-opening a connection that stalls and needs Ctrl+C. Partial files have
     // no marker, so they still resume with -c. Because the 416 path now exits
