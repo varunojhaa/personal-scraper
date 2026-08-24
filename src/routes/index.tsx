@@ -33,14 +33,17 @@ import {
 } from "@/lib/scrape.functions";
 import {
   buildWget,
+  buildShellScript,
   buildIdmList,
   buildIdmEf2,
   isProtected,
   isFileHostUrl,
+  validateManualInput,
   HOST_LABELS,
   type PixeldrainItem,
   type ScrapeResult,
 } from "@/lib/pixeldrain-extract";
+
 
 type ToolMode = "auto" | "wget" | "idm";
 
@@ -88,6 +91,9 @@ function Index() {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   /** Which host a decrypted .dlc auto-selects. */
   const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
+  /** Live status line shown while a scrape / paste / container resolve runs. */
+  const [status, setStatus] = useState<string | null>(null);
+
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
@@ -114,9 +120,16 @@ function Index() {
 
   const scrapeMutation = useMutation({
     mutationFn: (target: string) => scrape({ data: { url: target, deep: false } }),
-    onError: (e: Error) => toast.error(e.message || "Scrape failed"),
+    onMutate: (target) => setStatus(`Fetching ${target} and scanning it for download links…`),
+    onError: (e: Error) => {
+      setStatus(null);
+      toast.error(e.message || "Scrape failed");
+    },
     onSuccess: (d) => {
       merge(d);
+      setStatus(
+        `Done — scanned ${d.pagesScanned.length} page${d.pagesScanned.length === 1 ? "" : "s"}, found ${d.items.length} link${d.items.length === 1 ? "" : "s"}.`,
+      );
       toast.success(
         `${d.items.length} link${d.items.length === 1 ? "" : "s"} found${
           d.protectedPages.length ? ` · ${d.protectedPages.length} page(s) need you` : ""
@@ -127,7 +140,11 @@ function Index() {
 
   const pasteMutation = useMutation({
     mutationFn: (vars: { content: string; label: string }) => resolvePaste({ data: vars }),
-    onError: (e: Error) => toast.error(e.message || "Could not read pasted content"),
+    onMutate: () => setStatus("Reading your input and resolving filenames…"),
+    onError: (e: Error) => {
+      setStatus(null);
+      toast.error(e.message || "Could not read pasted content");
+    },
     onSuccess: (d, vars) => {
       // A fresh manual paste replaces the previous session: clear the old file
       // picker, selection and command before merging the new links.
@@ -137,6 +154,7 @@ function Index() {
       setExcluded(new Set());
       merge(d);
       if (d.items.length === 0) {
+        setStatus("No supported download links were found in that input.");
         toast.error("No download links in that paste");
         return;
       }
@@ -145,6 +163,7 @@ function Index() {
       );
       setActivePaste(null);
       setPasteValue("");
+      setStatus(`Done — ${d.items.length} link${d.items.length === 1 ? "" : "s"} resolved.`);
       toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"}`);
     },
   });
@@ -157,7 +176,12 @@ function Index() {
         data: { base64, filename: file.name, follow: true, hostFilter: dlcHost },
       });
     },
-    onError: (e: Error) => toast.error(e.message || "Could not read that container"),
+    onMutate: (file) =>
+      setStatus(`Decrypting ${file.name} and resolving ${HOST_LABELS[dlcHost]} filenames…`),
+    onError: (e: Error) => {
+      setStatus(null);
+      toast.error(e.message || "Could not read that container");
+    },
     onSuccess: (d) => {
       // A fresh .dlc upload replaces the previous session: clear the old file
       // picker, selection and command before merging the new container's links.
@@ -174,6 +198,7 @@ function Index() {
         return next;
       });
       if (d.items.length === 0) {
+        setStatus("Container decrypted, but no usable links came out of it.");
         toast.error(
           d.protectedPages.length
             ? "Container decrypted, but its links are captcha-protected — see the open-me queue"
@@ -182,6 +207,9 @@ function Index() {
         return;
       }
       const pd = d.items.filter((i) => i.host === dlcHost).length;
+      setStatus(
+        `Done — ${d.items.length} link${d.items.length === 1 ? "" : "s"} from the container, ${pd} ${HOST_LABELS[dlcHost]} selected.`,
+      );
       toast.success(
         `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} ${HOST_LABELS[dlcHost]} selected, ${
           d.items.length - pd
@@ -192,18 +220,31 @@ function Index() {
 
   const quickWgetMutation = useMutation({
     mutationFn: (link: string) => resolvePaste({ data: { content: link, label: "quick" } }),
-    onError: (e: Error) => toast.error(e.message || "Could not build the wget command"),
+    onMutate: () => setStatus("Resolving that link's filename…"),
+    onError: (e: Error) => {
+      setStatus(null);
+      toast.error(e.message || "Could not build the wget command");
+    },
     onSuccess: (d) => {
       if (d.items.length === 0) {
+        setStatus("No supported link was found in that input.");
         toast.error("No Pixeldrain or FileDitch link found in that input");
         return;
       }
       merge(d);
       const cmd = buildWget(d.items);
       void navigator.clipboard.writeText(cmd);
+      setStatus("Done — wget command copied to your clipboard.");
       toast.success("wget command copied to clipboard");
     },
   });
+
+  const busy =
+    scrapeMutation.isPending ||
+    pasteMutation.isPending ||
+    dlcMutation.isPending ||
+    quickWgetMutation.isPending;
+
 
   /**
    * FuckingFast links only come from FitGirl repacks in this app, so any
@@ -311,17 +352,34 @@ function Index() {
   };
 
   const submitPaste = (label: string) => {
-    if (pasteValue.trim().length < 3) return;
+    const problem = validateManualInput(pasteValue);
+    if (problem) {
+      setStatus(null);
+      toast.error(problem);
+      return;
+    }
     pasteMutation.mutate({ content: pasteValue, label });
   };
 
   const startScrape = () => {
     const target = url.trim();
-    if (!target) return;
+    if (!target) {
+      toast.error("Paste a page or file URL first.");
+      return;
+    }
+    if (!/^https?:\/\/[^\s.]+\.[^\s]{2,}/i.test(target)) {
+      toast.error(
+        /^https?:\/\//i.test(target)
+          ? "That doesn't look like a complete web address."
+          : "Add https:// in front of that address.",
+      );
+      return;
+    }
     if (isProtected(target)) {
       toast.error(
         "That host is captcha-protected — use the manual paste or .dlc upload below instead",
       );
+      setStatus("Captcha-protected page queued below — open it and paste the result.");
       setPending((prev) =>
         prev.some((p) => p.url === target) ? prev : [...prev, { url: target, status: "open-me" }],
       );
@@ -343,7 +401,9 @@ function Index() {
     setActivePaste(null);
     setPasteValue("");
     setExcluded(new Set());
+    setStatus(null);
   };
+
 
   return (
     <main className="min-h-screen bg-background">
@@ -436,6 +496,37 @@ function Index() {
               </Button>
             </div>
           )}
+
+          {(busy || status) && (
+            <div className="mt-4 rounded-xl border border-primary/40 bg-card/70 p-4 backdrop-blur">
+              <div className="flex items-center gap-2 text-sm">
+                {busy ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                ) : (
+                  <Check className="h-4 w-4 shrink-0 text-primary" />
+                )}
+                <span className="text-foreground">
+                  {status ?? "Working…"}
+                </span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={
+                    busy
+                      ? "h-full w-1/3 animate-[progress-slide_1.2s_ease-in-out_infinite] rounded-full bg-primary"
+                      : "h-full w-full rounded-full bg-primary/70"
+                  }
+                />
+              </div>
+              {items.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {items.length} link{items.length === 1 ? "" : "s"} collected · {scannedCount} page
+                  {scannedCount === 1 ? "" : "s"} scanned
+                </p>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -715,10 +806,20 @@ function Index() {
               <Card>
                 <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
                   <CardTitle className="text-base">wget command ({wgetItems.length})</CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        downloadText(buildShellScript(wgetItems), "download.sh", "download.sh")
+                      }
+                    >
+                      <FileDown className="h-4 w-4" /> download.sh
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => downloadText(command, "wget-command.txt", "wget-command.txt")}>
                       <FileDown className="h-4 w-4" /> .txt
                     </Button>
+
                     <Button variant="secondary" size="sm" onClick={copy}>
                       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copied ? "Copied" : "Copy"}
