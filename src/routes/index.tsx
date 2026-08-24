@@ -147,7 +147,9 @@ function Index() {
     mutationFn: async (file: File) => {
       // .dlc files are already base64 text — send the raw contents, don't re-encode.
       const base64 = (await file.text()).trim();
-      return resolveDlc({ data: { base64, filename: file.name, follow: true } });
+      return resolveDlc({
+        data: { base64, filename: file.name, follow: true, hostFilter: dlcHost },
+      });
     },
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
