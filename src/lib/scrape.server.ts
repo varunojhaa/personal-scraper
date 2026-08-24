@@ -100,51 +100,55 @@ function fileDitchDirectUrl(html: string) {
   }
 }
 
+/** Overall guard rails for a batch of FileDitch links: the browser check is
+ * CPU heavy, so cap how many we solve and how long the batch may take. */
+const FILEDITCH_MAX_ITEMS = 10;
+const FILEDITCH_TOTAL_BUDGET_MS = 8_000;
+
 /** FileDitch share URLs now return a small HTML page. Complete its lightweight
  * browser check and extract the temporary, signed media URL embedded in it. */
 async function resolveFileDitchItems(found: Map<string, PixeldrainItem>) {
   const items = [...found.values()].filter((item) => item.host === "fileditch");
+  const startedAt = Date.now();
+  let solved = 0;
   // Sequential on purpose: each verification can be CPU heavy, and solving
   // several at once trips the hosting runtime's CPU budget.
   for (const item of items) {
+    if (solved >= FILEDITCH_MAX_ITEMS) break;
+    if (Date.now() - startedAt > FILEDITCH_TOTAL_BUDGET_MS) break;
     const headers = { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" };
-    const first = await fetch(item.pageUrl, { headers, redirect: "follow" });
-    if (!first.ok) throw new Error(`FileDitch page failed (HTTP ${first.status})`);
-    let html = await first.text();
-    let directUrl = fileDitchDirectUrl(html);
+    try {
+      const first = await fetch(item.pageUrl, { headers, redirect: "follow" });
+      if (!first.ok) continue;
+      let html = await first.text();
+      let directUrl = fileDitchDirectUrl(html);
 
-    if (!directUrl) {
-      const fields = fileDitchPowFields(html);
-      const challenge = fields["pow_challenge"];
-      const difficulty = Number(fields["pow_diff"]);
-      if (!challenge || !Number.isInteger(difficulty) || difficulty < 1) {
-        throw new Error("FileDitch did not provide a usable download link");
+      if (!directUrl) {
+        const fields = fileDitchPowFields(html);
+        const challenge = fields["pow_challenge"];
+        const difficulty = Number(fields["pow_diff"]);
+        if (!challenge || !Number.isInteger(difficulty) || difficulty < 1) continue;
+        if (difficulty > POW_MAX_DIFFICULTY) continue;
+        fields["pow_nonce"] = await solveFileDitchPow(challenge, difficulty);
+        solved += 1;
+        const verified = await fetch(first.url || item.pageUrl, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(fields).toString(),
+          redirect: "follow",
+        });
+        if (!verified.ok) continue;
+        html = await verified.text();
+        directUrl = fileDitchDirectUrl(html);
       }
-      if (difficulty > POW_MAX_DIFFICULTY) {
-        throw new Error(
-          "FileDitch's browser check is too heavy to solve here — open the link in a browser and paste the direct link",
-        );
-      }
-      fields["pow_nonce"] = await solveFileDitchPow(challenge, difficulty);
-      const verified = await fetch(first.url || item.pageUrl, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams(fields).toString(),
-        redirect: "follow",
-      });
-      if (!verified.ok) {
-        throw new Error(`FileDitch verification failed (HTTP ${verified.status})`);
-      }
-      html = await verified.text();
-      directUrl = fileDitchDirectUrl(html);
-    }
 
-    if (!directUrl.startsWith("https://")) {
-      throw new Error("FileDitch's direct download link could not be resolved");
+      if (directUrl.startsWith("https://")) item.directUrl = directUrl;
+    } catch {
+      /* leave this item on its page URL; the rest of the batch still works */
     }
-    item.directUrl = directUrl;
   }
 }
+
 
 
 async function resolveItemMetadata(
