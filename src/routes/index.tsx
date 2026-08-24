@@ -33,14 +33,17 @@ import {
 } from "@/lib/scrape.functions";
 import {
   buildWget,
+  buildShellScript,
   buildIdmList,
   buildIdmEf2,
   isProtected,
   isFileHostUrl,
+  validateManualInput,
   HOST_LABELS,
   type PixeldrainItem,
   type ScrapeResult,
 } from "@/lib/pixeldrain-extract";
+
 
 type ToolMode = "auto" | "wget" | "idm";
 
