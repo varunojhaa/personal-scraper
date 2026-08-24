@@ -496,6 +496,37 @@ function Index() {
               </Button>
             </div>
           )}
+
+          {(busy || status) && (
+            <div className="mt-4 rounded-xl border border-primary/40 bg-card/70 p-4 backdrop-blur">
+              <div className="flex items-center gap-2 text-sm">
+                {busy ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                ) : (
+                  <Check className="h-4 w-4 shrink-0 text-primary" />
+                )}
+                <span className="text-foreground">
+                  {status ?? "Working…"}
+                </span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={
+                    busy
+                      ? "h-full w-1/3 animate-[progress-slide_1.2s_ease-in-out_infinite] rounded-full bg-primary"
+                      : "h-full w-full rounded-full bg-primary/70"
+                  }
+                />
+              </div>
+              {items.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {items.length} link{items.length === 1 ? "" : "s"} collected · {scannedCount} page
+                  {scannedCount === 1 ? "" : "s"} scanned
+                </p>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
