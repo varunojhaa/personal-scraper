@@ -153,6 +153,12 @@ function Index() {
     },
     onError: (e: Error) => toast.error(e.message || "Could not read that container"),
     onSuccess: (d) => {
+      // A fresh .dlc upload replaces the previous session: clear the old file
+      // picker, selection and command before merging the new container's links.
+      setItems([]);
+      setPending([]);
+      setScannedCount(0);
+      setExcluded(new Set());
       merge(d);
       // Only auto-select links from the chosen provider; every other host in
       // the .dlc is deselected so the wget command targets just those files.
