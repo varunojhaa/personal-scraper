@@ -303,7 +303,8 @@ function Index() {
             : [],
     [selectedItems, mode, fitgirlMode],
   );
-  const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
+  const hasFileDitch = useMemo(() => wgetItems.some((i) => i.host === "fileditch"), [wgetItems]);
+  const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
   const openMe = pending.filter((p) => p.status === "open-me");
 
