@@ -217,23 +217,33 @@ function shellQuote(name: string) {
   return `'${name.replace(/'/g, "'\\''")}'`;
 }
 
-function fileDitchCommand(item: PixeldrainItem, common: string) {
+function fileDitchCommand(item: PixeldrainItem, common: string, clearance = "") {
   const filename = item.filename ?? "fileditch-download";
-  const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.parse,urllib.request
-url,name=sys.argv[1],sys.argv[2]
+  const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.error,urllib.parse,urllib.request
+url,name,clearance=sys.argv[1],sys.argv[2],sys.argv[3]
 ua=${JSON.stringify(UA)}
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+def headers():
+    h={"User-Agent":ua,"Accept":"text/html,application/xhtml+xml,*/*","Accept-Language":"en-US,en;q=0.9"}
+    if clearance: h["Cookie"]="cf_clearance="+clearance
+    return h
 def request(target,data=None):
-    req=urllib.request.Request(target,data=data,headers={"User-Agent":ua,"Accept":"text/html,application/xhtml+xml,*/*"})
-    with opener.open(req,timeout=60) as response:
-        return response.geturl(),response.read().decode("utf-8","replace")
+    req=urllib.request.Request(target,data=data,headers=headers())
+    try:
+        with opener.open(req,timeout=60) as response:
+            return response.geturl(),response.read().decode("utf-8","replace")
+    except urllib.error.HTTPError as err:
+        body=err.read().decode("utf-8","replace")
+        if err.code in (403,503) and re.search(r"Just a moment|cf-chl|challenges\\.cloudflare\\.com",body,re.I):
+            raise SystemExit("FileDitch is behind a Cloudflare browser check"+(" and the browser pass you pasted was rejected or has expired — open the file page in your browser and copy a fresh cf_clearance cookie." if clearance else " — open the file page once in your browser, copy the cf_clearance cookie value, paste it into the FileDitch browser pass box and rebuild this command."))
+        raise SystemExit("FileDitch returned HTTP %s for %s" % (err.code,target))
 def direct(page):
-    match=re.search(r"var\\s+u\\s*=\\s*(\\[[\\s\\S]*?\\])\\.join\\([\\\"']{2}\\)",page,re.I)
+    match=re.search(r"var\\s+u\\s*=\\s*(\\[[\\s\\S]*?\\])\\.join\\([\\"']{2}\\)",page,re.I)
     return "".join(json.loads(match.group(1))) if match else ""
 final,page=request(url)
 media=direct(page)
 if not media:
-    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\\"']([^\\\"']+)[\\\"'][^>]*\\bvalue=[\\\"']([^\\\"']*)[\\\"'][^>]*>",page,re.I)}
+    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\"']([^\\"']+)[\\"'][^>]*\\bvalue=[\\"']([^\\"']*)[\\"'][^>]*>",page,re.I)}
     challenge=fields.get("pow_challenge","")
     difficulty=int(fields.get("pow_diff","0"))
     if not challenge or difficulty<1: raise SystemExit("FileDitch verification challenge was not found")
@@ -247,9 +257,12 @@ if not media:
     final,page=request(final,urllib.parse.urlencode(fields).encode())
     media=direct(page)
 if not media.startswith("https://"): raise SystemExit("FileDitch did not return a download URL")
-raise SystemExit(subprocess.call(["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+url,media]))`;
-  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)}`;
+cmd=["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+url]
+if clearance: cmd.append("--header=Cookie: cf_clearance="+clearance)
+raise SystemExit(subprocess.call(cmd+[media]))`;
+  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)} ${shellQuote(clearance)}`;
 }
+
 
 export function buildWget(items: PixeldrainItem[]) {
   if (!items.length) return "";
