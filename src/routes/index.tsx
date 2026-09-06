@@ -96,6 +96,8 @@ function Index() {
   const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
   /** Live status line shown while a scrape / paste / container resolve runs. */
   const [status, setStatus] = useState<string | null>(null);
+  /** Optional Cloudflare cf_clearance cookie so FileDitch commands get through. */
+  const [clearance, setClearance] = useState("");
 
 
   const scrape = useServerFn(scrapePixeldrain);
