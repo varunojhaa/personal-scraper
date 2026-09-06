@@ -308,7 +308,7 @@ export function buildWget(items: PixeldrainItem[], clearance = "") {
  * written out one per line with a shebang so it can be saved and executed
  * (`bash download.sh`).
  */
-export function buildShellScript(items: PixeldrainItem[]) {
+export function buildShellScript(items: PixeldrainItem[], clearance = "") {
   if (!items.length) return "";
   const common = `-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5 --no-http-keep-alive`;
   const lines = items.map((i) => {
