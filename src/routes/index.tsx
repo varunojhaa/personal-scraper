@@ -846,11 +846,28 @@ function Index() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {hasFileDitch && (
+                    <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        <strong className="text-foreground">FileDitch browser pass.</strong>{" "}
+                        FileDitch sits behind a Cloudflare browser check that a terminal command
+                        can&apos;t pass on its own. Open the file page once in your browser, copy the{" "}
+                        <code>cf_clearance</code> cookie value for fileditch, and paste it here — the
+                        command below picks it up. It stays in this page only and is never stored.
+                      </p>
+                      <Input
+                        value={clearance}
+                        onChange={(e) => setClearance(e.target.value)}
+                        placeholder="cf_clearance cookie value (optional)"
+                        className="h-9 text-xs"
+                        style={{ fontFamily: "var(--font-mono-stack)" }}
+                      />
+                    </div>
+                  )}
                   <p className="mb-2 text-xs text-muted-foreground">
                     Copy this command and paste it into a terminal — it downloads every selected
                     file in the background, so it keeps running after you close the session.
                     Progress goes to wget.log (tail -f wget.log).
-
                   </p>
                   <Textarea
                     readOnly
