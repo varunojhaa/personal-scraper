@@ -96,6 +96,8 @@ function Index() {
   const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
   /** Live status line shown while a scrape / paste / container resolve runs. */
   const [status, setStatus] = useState<string | null>(null);
+  /** Optional Cloudflare cf_clearance cookie so FileDitch commands get through. */
+  const [clearance, setClearance] = useState("");
 
 
   const scrape = useServerFn(scrapePixeldrain);
@@ -235,7 +237,7 @@ function Index() {
         return;
       }
       merge(d);
-      const cmd = buildWget(d.items);
+      const cmd = buildWget(d.items, clearance);
       void navigator.clipboard.writeText(cmd);
       setStatus("Done — wget command copied to your clipboard.");
       toast.success("wget command copied to clipboard");
@@ -303,7 +305,8 @@ function Index() {
             : [],
     [selectedItems, mode, fitgirlMode],
   );
-  const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
+  const hasFileDitch = useMemo(() => wgetItems.some((i) => i.host === "fileditch"), [wgetItems]);
+  const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
   const openMe = pending.filter((p) => p.status === "open-me");
 
@@ -830,7 +833,7 @@ function Index() {
                       size="sm"
                       onClick={() => {
                         const name = exportName(wgetItems, url, "sh");
-                        downloadText(buildShellScript(wgetItems), name, name);
+                        downloadText(buildShellScript(wgetItems, clearance), name, name);
                       }}
                     >
                       <FileDown className="h-4 w-4" /> download.sh
@@ -846,11 +849,28 @@ function Index() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {hasFileDitch && (
+                    <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        <strong className="text-foreground">FileDitch browser pass.</strong>{" "}
+                        FileDitch sits behind a Cloudflare browser check that a terminal command
+                        can&apos;t pass on its own. Open the file page once in your browser, copy the{" "}
+                        <code>cf_clearance</code> cookie value for fileditch, and paste it here — the
+                        command below picks it up. It stays in this page only and is never stored.
+                      </p>
+                      <Input
+                        value={clearance}
+                        onChange={(e) => setClearance(e.target.value)}
+                        placeholder="cf_clearance cookie value (optional)"
+                        className="h-9 text-xs"
+                        style={{ fontFamily: "var(--font-mono-stack)" }}
+                      />
+                    </div>
+                  )}
                   <p className="mb-2 text-xs text-muted-foreground">
                     Copy this command and paste it into a terminal — it downloads every selected
                     file in the background, so it keeps running after you close the session.
                     Progress goes to wget.log (tail -f wget.log).
-
                   </p>
                   <Textarea
                     readOnly
