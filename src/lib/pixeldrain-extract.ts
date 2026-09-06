@@ -238,12 +238,12 @@ def request(target,data=None):
             raise SystemExit("FileDitch is behind a Cloudflare browser check"+(" and the browser pass you pasted was rejected or has expired — open the file page in your browser and copy a fresh cf_clearance cookie." if clearance else " — open the file page once in your browser, copy the cf_clearance cookie value, paste it into the FileDitch browser pass box and rebuild this command."))
         raise SystemExit("FileDitch returned HTTP %s for %s" % (err.code,target))
 def direct(page):
-    match=re.search(r"var\\s+u\\s*=\\s*(\\[[\\s\\S]*?\\])\\.join\\([\\"']{2}\\)",page,re.I)
+    match=re.search(r"var\\s+u\\s*=\\s*(\\[[\\s\\S]*?\\])\\.join\\([\\\"']{2}\\)",page,re.I)
     return "".join(json.loads(match.group(1))) if match else ""
 final,page=request(url)
 media=direct(page)
 if not media:
-    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\"']([^\\"']+)[\\"'][^>]*\\bvalue=[\\"']([^\\"']*)[\\"'][^>]*>",page,re.I)}
+    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\\"']([^\\"']+)[\\\"'][^>]*\\bvalue=[\\\"']([^\\"']*)[\\\"'][^>]*>",page,re.I)}
     challenge=fields.get("pow_challenge","")
     difficulty=int(fields.get("pow_diff","0"))
     if not challenge or difficulty<1: raise SystemExit("FileDitch verification challenge was not found")
