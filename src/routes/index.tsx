@@ -237,7 +237,7 @@ function Index() {
         return;
       }
       merge(d);
-      const cmd = buildWget(d.items);
+      const cmd = buildWget(d.items, clearance);
       void navigator.clipboard.writeText(cmd);
       setStatus("Done — wget command copied to your clipboard.");
       toast.success("wget command copied to clipboard");
