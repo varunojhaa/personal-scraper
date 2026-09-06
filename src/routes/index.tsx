@@ -830,7 +830,7 @@ function Index() {
                       size="sm"
                       onClick={() => {
                         const name = exportName(wgetItems, url, "sh");
-                        downloadText(buildShellScript(wgetItems), name, name);
+                        downloadText(buildShellScript(wgetItems, clearance), name, name);
                       }}
                     >
                       <FileDown className="h-4 w-4" /> download.sh
