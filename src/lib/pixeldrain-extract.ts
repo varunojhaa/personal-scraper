@@ -243,7 +243,7 @@ def direct(page):
 final,page=request(url)
 media=direct(page)
 if not media:
-    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\\"']([^\\"']+)[\\\"'][^>]*\\bvalue=[\\\"']([^\\"']*)[\\\"'][^>]*>",page,re.I)}
+    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\\b[^>]*\\bname=[\\\"']([^\\\"']+)[\\\"'][^>]*\\bvalue=[\\\"']([^\\\"']*)[\\\"'][^>]*>",page,re.I)}
     challenge=fields.get("pow_challenge","")
     difficulty=int(fields.get("pow_diff","0"))
     if not challenge or difficulty<1: raise SystemExit("FileDitch verification challenge was not found")
