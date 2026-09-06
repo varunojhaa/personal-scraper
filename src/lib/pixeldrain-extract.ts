@@ -264,7 +264,7 @@ raise SystemExit(subprocess.call(cmd+[media]))`;
 }
 
 
-export function buildWget(items: PixeldrainItem[]) {
+export function buildWget(items: PixeldrainItem[], clearance = "") {
   if (!items.length) return "";
   // Common flags: retry on stalls instead of hanging forever, resume partial
   // files, and force connection close per request. --no-http-keep-alive is
