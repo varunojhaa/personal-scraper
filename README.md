@@ -11,8 +11,8 @@ This project is licensed under the [MIT License](LICENSE).
 Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
+git clone https://github.com/varunojhaa/personal-scraper.git
+cd personal-scraper
 npm i
 npm run dev
 ```
