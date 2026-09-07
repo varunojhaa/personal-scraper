@@ -1,8 +1,8 @@
 import { UA } from "./pixeldrain-extract.ts";
 
-// Keep the request under typical Cloudflare Worker CPU/time limits: each
-// FileKeeper countdown can take several seconds before its POST is accepted.
-const MAX_BATCH = 3;
+// Cloudflare Workers Free allows 50 subrequests per invocation. A file may
+// use up to MAX_STEPS + 1 fetches, so 7 files stay within that limit (49).
+const MAX_BATCH = 7;
 const MAX_STEPS = 6;
 const MAX_HTML = 4 * 1024 * 1024;
 

@@ -40,7 +40,7 @@ export const resolveFileKeeperIdmLinks = createServerFn({ method: "POST" })
         items: z
           .array(z.object({ pageUrl: z.string().url(), filename: z.string().max(300).optional() }))
           .min(1)
-          .max(3),
+          .max(7),
       })
       .parse(data),
   )

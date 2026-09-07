@@ -315,8 +315,8 @@ function Index() {
     mutationFn: async (selected: PixeldrainItem[]) => {
       const links: ResolvedIdmLink[] = [];
       const failed: string[] = [];
-      for (let start = 0; start < selected.length; start += 100) {
-        const batch = selected.slice(start, start + 100);
+      for (let start = 0; start < selected.length; start += 7) {
+        const batch = selected.slice(start, start + 7);
         try {
           const result = await resolveFileKeeper({
             data: {
@@ -328,11 +328,11 @@ function Index() {
           });
           links.push(...result.links);
           failed.push(
-            ...result.failed.map((message) => `Batch ${Math.floor(start / 100) + 1}: ${message}`),
+            ...result.failed.map((message) => `Batch ${Math.floor(start / 7) + 1}: ${message}`),
           );
         } catch (error) {
           failed.push(
-            `Batch ${Math.floor(start / 100) + 1}: ${
+            `Batch ${Math.floor(start / 7) + 1}: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
@@ -346,11 +346,11 @@ function Index() {
     },
     onMutate: (selected) => {
       setCloudflareProgress({ done: 0, total: selected.length });
-      setStatus({ kind: "working", text: "Resolving FileKeeper links on Cloudflare…" });
+      setStatus({ kind: "working", text: "Resolving FileKeeper links in the browser…" });
     },
     onError: (error) => {
       setCloudflareProgress(null);
-      reportError(error, "Cloudflare FileKeeper resolution failed");
+      reportError(error, "FileKeeper browser resolution failed");
     },
     onSuccess: ({ links, resolved, failed }) => {
       setCloudflareProgress(null);
@@ -1728,14 +1728,15 @@ function Index() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Run in browser resolves selected pages in batches of up to 100 and downloads
-                        a .txt URL list. For larger selections, use the downloaded script in
-                        batches.
+                        Run in browser resolves all selected pages in batches of up to 7 (the
+                        Cloudflare Workers Free-plan limit) and updates the progress bar after each
+                        batch before downloading a .txt URL list. Use the downloaded script for
+                        local resolution instead.
                       </p>
                       {cloudflareProgress && (
                         <div className="grid gap-2" aria-live="polite">
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Cloudflare resolution progress</span>
+                            <span>FileKeeper browser resolution progress</span>
                             <span>
                               {cloudflareProgress.done} / {cloudflareProgress.total}
                             </span>
