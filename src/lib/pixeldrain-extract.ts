@@ -237,6 +237,9 @@ function fileDitchCommand(item: PixeldrainItem, common: string, rawClearance = "
   const filename = item.filename ?? "fileditch-download";
   const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.error,urllib.parse,urllib.request
 url,name,clearance=sys.argv[1],sys.argv[2],sys.argv[3]
+m=re.search(r"cf_clearance\\s*[=:]\\s*([^\\s;,]+)",clearance)
+if m: clearance=m.group(1)
+clearance="".join(c for c in clearance.strip() if 33<=ord(c)<=126 and c not in ";,")
 ua=${JSON.stringify(UA)}
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
 def headers():
