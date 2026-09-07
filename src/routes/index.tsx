@@ -93,7 +93,7 @@ function Index() {
   /** Unselected item keys — everything is selected unless it's in here. */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   /** Which host a decrypted .dlc auto-selects. */
-  const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch">("pixeldrain");
+  const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch" | "filekeeper">("pixeldrain");
   /** Live status line shown while a scrape / paste / container resolve runs. */
   const [status, setStatus] = useState<string | null>(null);
   /** Optional Cloudflare cf_clearance cookie so FileDitch commands get through. */
