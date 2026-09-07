@@ -407,6 +407,8 @@ export function buildShellScript(items: PixeldrainItem[], clearance = "") {
         ? `wget${cd} ${common}${out} "${i.directUrl}"`
         : i.host === "fileditch"
           ? fileDitchCommand(i, common, clearance)
+          : i.host === "filekeeper"
+            ? fileKeeperCommand(i, common)
           : `wget${cd} ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
     const label = i.filename || i.pageUrl;
     if (!i.filename) return `# ${label}\n${cmd} || echo "FAILED: ${label}" >&2`;
