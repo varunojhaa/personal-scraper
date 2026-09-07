@@ -30,5 +30,5 @@ File: `src/routes/index.tsx`.
 - The `.txt` download still exports the same single-line string.
 
 ## Out of scope
-- IDM list and `.ef2` export stay as-is (one URL per line, as IDM expects).
+- IDM exports are plain `.txt` URL lists (one URL per line, as IDM expects).
 - No new toggles; the wget output is always one line.

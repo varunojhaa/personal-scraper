@@ -42,7 +42,6 @@ import {
   buildWget,
   buildShellScript,
   buildIdmList,
-  buildIdmEf2,
   buildFileKeeperIdmScript,
   isIdmReady,
   exportName,
@@ -56,7 +55,6 @@ import {
 } from "@/lib/pixeldrain-extract";
 
 type ToolMode = "auto" | "wget" | "idm";
-type IdmFormat = "txt" | "ef2";
 
 type DlcHost = "pixeldrain" | "fileditch" | "filekeeper";
 
@@ -263,23 +261,8 @@ function isFitgirlSource(value: string): boolean {
   }
 }
 
-function buildResolvedIdmExport(links: ResolvedIdmLink[], format: IdmFormat): string {
-  if (format === "txt") {
-    return links.map((link) => link.url).join("\n");
-  }
-
-  return buildIdmEf2(
-    links.map((link, index) => ({
-      id: `resolved-${index + 1}`,
-      kind: "file",
-      host: "filekeeper",
-      pageUrl: link.referer,
-      directUrl: link.url,
-      foundOn: link.referer,
-      tool: "idm",
-      ...(link.cookie ? { cookie: link.cookie } : {}),
-    })),
-  );
+function buildResolvedIdmExport(links: ResolvedIdmLink[]): string {
+  return links.map((link) => link.url).join("\n");
 }
 
 function Index() {
@@ -295,7 +278,6 @@ function Index() {
   const [pasteValue, setPasteValue] = useState("");
 
   const [mode, setMode] = useState<ToolMode>("auto");
-  const [idmFormat, setIdmFormat] = useState<IdmFormat>("txt");
   const [includeOptional, setIncludeOptional] = useState(false);
 
   /** Everything is selected unless its key appears here. */
@@ -333,8 +315,8 @@ function Index() {
     mutationFn: async (selected: PixeldrainItem[]) => {
       const links: ResolvedIdmLink[] = [];
       const failed: string[] = [];
-      for (let start = 0; start < selected.length; start += 3) {
-        const batch = selected.slice(start, start + 3);
+      for (let start = 0; start < selected.length; start += 100) {
+        const batch = selected.slice(start, start + 100);
         try {
           const result = await resolveFileKeeper({
             data: {
@@ -346,11 +328,11 @@ function Index() {
           });
           links.push(...result.links);
           failed.push(
-            ...result.failed.map((message) => `Batch ${Math.floor(start / 3) + 1}: ${message}`),
+            ...result.failed.map((message) => `Batch ${Math.floor(start / 100) + 1}: ${message}`),
           );
         } catch (error) {
           failed.push(
-            `Batch ${Math.floor(start / 3) + 1}: ${
+            `Batch ${Math.floor(start / 100) + 1}: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
@@ -372,10 +354,7 @@ function Index() {
     },
     onSuccess: ({ links, resolved, failed }) => {
       setCloudflareProgress(null);
-      downloadText(
-        buildResolvedIdmExport(links, idmFormat),
-        `filekeeper-cloudflare-idm-urls.${idmFormat}`,
-      );
+      downloadText(buildResolvedIdmExport(links), "filekeeper-cloudflare-idm-urls.txt");
       const text = `Created an IDM URL list for ${resolved} file(s).${failed.length ? ` ${failed.length} failed.` : ""}`;
       setStatus({ kind: failed.length ? "info" : "success", text });
       if (failed.length) toast.warning(failed.join(" "));
@@ -764,10 +743,7 @@ function Index() {
   const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
 
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
-  const idmExport = useMemo(
-    () => (idmFormat === "ef2" ? buildIdmEf2(idmItems) : idmList),
-    [idmFormat, idmItems, idmList],
-  );
+  const idmExport = idmList;
 
   const idmReadyCount = useMemo(
     () => idmItems.filter((item) => isIdmReady(item)).length,
@@ -1673,20 +1649,7 @@ function Index() {
                   </CardTitle>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Format:</span>
-                    <div className="flex items-center gap-1 rounded-md border border-border p-1">
-                      {(["txt", "ef2"] as const).map((format) => (
-                        <Button
-                          key={format}
-                          variant={idmFormat === format ? "default" : "ghost"}
-                          size="sm"
-                          className="h-7 px-3 text-xs"
-                          onClick={() => setIdmFormat(format)}
-                        >
-                          .{format}
-                        </Button>
-                      ))}
-                    </div>
+                    <span className="text-xs text-muted-foreground">Format: .txt</span>
 
                     <Button variant="secondary" size="sm" onClick={copyIdm} disabled={!idmList}>
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -1696,20 +1659,18 @@ function Index() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => downloadText(idmExport, exportName(idmItems, url, idmFormat))}
+                      onClick={() => downloadText(idmExport, exportName(idmItems, url, "txt"))}
                       disabled={!idmExport}
                     >
                       <FileDown className="h-4 w-4" />
-                      Download .{idmFormat}
+                      Download .txt
                     </Button>
                   </div>
                 </CardHeader>
 
                 <CardContent className="grid gap-3">
                   <p className="text-xs text-muted-foreground">
-                    .txt is the default and works with IDM → Tasks → Add Batch Download From
-                    Clipboard. .ef2 exports IDM entries with referer and cookie metadata when
-                    available.
+                    The .txt URL list works with IDM → Tasks → Add Batch Download From Clipboard.
                   </p>
 
                   {idmHasFileKeeper && (
@@ -1729,16 +1690,26 @@ function Index() {
                         <code className="mt-1 block break-all rounded bg-background/70 p-2">
                           {UA}
                         </code>
+                        <a
+                          href="https://www.internetdownloadmanager.com/support/using_idm/using_idm.html"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 underline underline-offset-2 hover:no-underline"
+                        >
+                          Step-by-step IDM download instructions
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        </a>
+                        <span className="mt-1 block">
+                          In IDM: open <strong>Options → General → User-Agent</strong>, paste the
+                          value above, click <strong>OK</strong>, then retry with a fresh link.
+                        </span>
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            downloadText(
-                              buildFileKeeperIdmScript(idmItems, idmFormat),
-                              "filekeeper-idm.py",
-                            )
+                            downloadText(buildFileKeeperIdmScript(idmItems), "filekeeper-idm.py")
                           }
                         >
                           <FileDown className="h-4 w-4" />
@@ -1757,9 +1728,9 @@ function Index() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Run in browser resolves selected pages in batches of up to 3 and downloads
-                        the selected export format. For larger selections, use the downloaded script
-                        in batches.
+                        Run in browser resolves selected pages in batches of up to 100 and downloads
+                        a .txt URL list. For larger selections, use the downloaded script in
+                        batches.
                       </p>
                       {cloudflareProgress && (
                         <div className="grid gap-2" aria-live="polite">

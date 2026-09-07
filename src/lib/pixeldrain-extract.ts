@@ -1155,10 +1155,7 @@ except OSError as error:
 }
 
 /** Resolve on the IDM user's computer, retaining its IP and session context. */
-export function buildFileKeeperIdmScript(
-  items: PixeldrainItem[],
-  format: "txt" | "ef2" = "txt",
-): string {
+export function buildFileKeeperIdmScript(items: PixeldrainItem[]): string {
   const files = items
     .filter((item) => item.host === "filekeeper")
     .map((item) => ({ url: item.pageUrl, name: safeFilename(item.filename ?? "") }));
@@ -1183,13 +1180,12 @@ def export_idm():
         description="Resolve FileKeeper locally, then import the URL list into IDM immediately."
     )
     parser.add_argument("--start",type=int,default=1,help="First selected file (1-based)")
-    parser.add_argument("--count",type=int,default=10,help="Batch size (default: 10)")
-    default_output="filekeeper-idm-%s.${format}" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    export_ef2=${format === "ef2" ? "True" : "False"}
-    parser.add_argument("--output",default=default_output,help="IDM ${format} export; never overwritten")
+    parser.add_argument("--count",type=int,default=100,help="Batch size (default: 100; maximum: all selected files)")
+    default_output="filekeeper-idm-%s.txt" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    parser.add_argument("--output",default=default_output,help="IDM TXT URL list; never overwritten")
     args=parser.parse_args()
-    if args.start<1 or args.start>len(FILES) or args.count<1:
-        parser.error("start must be within the selected files and count must be positive")
+    if args.start<1 or args.start>len(FILES) or args.count<1 or args.count>len(FILES):
+        parser.error("start must be within the selected files and count must be between 1 and the number of selected files")
     batch=FILES[args.start-1:args.start-1+args.count]
     # Signed URLs and cookies are private. Refuse to overwrite earlier exports.
     fd=os.open(args.output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
@@ -1201,14 +1197,7 @@ def export_idm():
             print("Resolving file %s/%s: %s" % (index,len(FILES),name or "FileKeeper"),flush=True)
             try:
                 link,referer,cookie=main(resolve_only=True)
-                record="<"+single_line(link)+"\r\nreferer: "+single_line(referer)+"\r\nUser-Agent: "+ua+"\r\n"
-                if cookie:
-                    record+="Cookie: "+single_line(cookie)+"\r\n"
-                if export_ef2:
-                    record += "\r\n>\r\n"
-                    output.write(record)
-                else:
-                    output.write(single_line(link)+"\r\n")
+                output.write(single_line(link)+"\r\n")
                 output.flush()
                 succeeded+=1
             except (SystemExit,OSError,ValueError) as error:
@@ -1217,7 +1206,7 @@ def export_idm():
     print("Keep this file private: it may contain signed URLs and session cookies.")
     next_start=args.start+len(batch)
     if next_start<=len(FILES):
-        print("Next batch: --start %s --count %s --output filekeeper-idm-%s.${format}" % (next_start,args.count,next_start))
+        print("Next batch: --start %s --count %s --output filekeeper-idm-%s.txt" % (next_start,args.count,next_start))
     return 0 if succeeded==len(batch) else 1
 
 if __name__=="__main__":
@@ -1502,21 +1491,4 @@ export function buildIdmList(items: PixeldrainItem[]): string {
 
 export function isIdmReady(item: PixeldrainItem): boolean {
   return isResolvedFileKeeperUrl(item);
-}
-
-/** IDM .ef2 export format. */
-export function buildIdmEf2(items: PixeldrainItem[]): string {
-  const singleLine = (value: string): string => value.replace(/[\r\n]/g, "");
-
-  return items
-    .filter(isResolvedFileKeeperUrl)
-    .map(
-      (item) =>
-        `<${singleLine(item.directUrl)}\r\n` +
-        `referer: ${singleLine(item.pageUrl)}\r\n` +
-        `User-Agent: ${UA}\r\n` +
-        (item.cookie ? `Cookie: ${singleLine(item.cookie)}\r\n` : "") +
-        `\r\n>`,
-    )
-    .join("\r\n");
 }

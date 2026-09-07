@@ -6,7 +6,6 @@ import {
   buildWget,
   buildFileKeeperIdmScript,
   buildIdmList,
-  buildIdmEf2,
   extract,
 } from "../src/lib/pixeldrain-extract.ts";
 
@@ -30,31 +29,20 @@ test("generated FileKeeper Python resolves countdown pages and enforces safeguar
   assert.equal(result.status, 0, result.error?.message || result.stdout + result.stderr);
 });
 
-test("IDM lists exclude FileKeeper HTML pages but preserve signed downloads", () => {
+test("IDM TXT lists exclude FileKeeper HTML pages but preserve signed downloads", () => {
   const found = new Map();
   extract("https://filekeeper.net/example12345/example.mkv", "test", found);
   const item = [...found.values()][0];
   assert.equal(buildIdmList([item]), "");
-  assert.equal(buildIdmEf2([item]), "");
   assert.equal(buildFileKeeperIdmScript([]), "");
-  const ef2Script = buildFileKeeperIdmScript([item], "ef2");
-  assert.ok(ef2Script.includes('default_output="filekeeper-idm-%s.ef2"'));
-  assert.ok(ef2Script.includes("export_ef2=True"));
-  assert.ok(ef2Script.includes('record="<"+single_line(link)+"\\r\\n'));
-  assert.ok(ef2Script.includes('record += "\\r\\n>\\r\\n"'));
+  const txtScript = buildFileKeeperIdmScript([item]);
+  assert.ok(txtScript.includes('default_output="filekeeper-idm-%s.txt"'));
+  assert.ok(!txtScript.includes(".ef2"));
+  assert.ok(!txtScript.includes("export_ef2"));
+  assert.ok(txtScript.includes('output.write(single_line(link)+"\\r\\n")'));
   const directUrl = "https://cdn.dlproxy.uk/download/example?signature=abc%2Bdef&expires=123";
   const direct = { ...item, directUrl };
   assert.equal(buildIdmList([direct]), directUrl);
-  const directEf2 = buildIdmEf2([direct]);
-  assert.ok(directEf2.startsWith(`<${directUrl}\r\n`));
-  assert.ok(directEf2.includes("referer: "));
-  assert.ok(
-    directEf2.includes(
-      "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    ),
-  );
-  assert.ok(directEf2.endsWith("\r\n>"));
-  assert.equal(directEf2.match(/>/g)?.length, 1);
   assert.equal(
     buildIdmList([{ ...item, directUrl: "https://dlproxy.uk.evil.example/download/a" }]),
     "",

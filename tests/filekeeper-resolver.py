@@ -225,8 +225,8 @@ class IdmExportTests(unittest.TestCase):
         files = [{"url": f"https://filekeeper.net/code{i}/part{i}.rar", "name": f"part{i}.rar"}
                  for i in range(186)]
         with tempfile.TemporaryDirectory() as directory:
-            for options, expected in (([], 10), (["--count", "186"], 186)):
-                output = Path(directory) / f"links-{expected}.txt"
+            for case, (options, expected) in enumerate((([], 100), (["--count", "100"], 100), (["--count", "186"], 186)), 1):
+                output = Path(directory) / f"links-{expected}-{case}.txt"
                 args = ["filekeeper-idm.py", "--output", str(output), *options]
                 with patch.dict(idm, FILES=files), patch.object(sys, "argv", args), \
                         patch.dict(idm, main=lambda resolve_only: (tunnel, page_url, "")):
@@ -235,8 +235,8 @@ class IdmExportTests(unittest.TestCase):
 
     def test_invalid_batch_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "links.ef2"
-            for options in (["--start", "0"], ["--count", "0"], ["--start", "999"]):
+            output = Path(directory) / "links.txt"
+            for options in (["--start", "0"], ["--count", "0"], ["--count", "187"], ["--start", "999"]):
                 with patch.object(sys, "argv", ["filekeeper-idm.py", "--output", str(output), *options]):
                     with self.assertRaises(SystemExit):
                         idm["export_idm"]()

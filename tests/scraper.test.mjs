@@ -4,7 +4,7 @@ import {
   extract,
   collectLinks,
   buildShellScript,
-  buildIdmEf2,
+  buildIdmList,
   buildWget,
 } from "../src/lib/pixeldrain-extract.ts";
 import { scrapeUrl, resolvePasted, resolveDlc } from "../src/lib/scrape.server.ts";
@@ -282,6 +282,8 @@ test("exports sanitize filenames, quote apostrophes, and require output plus com
   assert.ok(script.includes("exit 1"));
   assert.equal(buildShellScript([]), "");
   assert.equal(buildWget([]), "");
-  const ef2 = buildIdmEf2([{ ...item, pageUrl: "https://example.com/\r\ninjected: bad" }]);
-  assert.ok(!ef2.includes("\ninjected:"));
+  assert.equal(
+    buildIdmList([{ ...item, pageUrl: "https://example.com/\r\ninjected: bad" }]),
+    item.directUrl,
+  );
 });
