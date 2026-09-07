@@ -56,7 +56,7 @@ import {
 
 type ToolMode = "auto" | "wget" | "idm";
 
-type DlcHost = "pixeldrain" | "fileditch" | "filekeeper";
+type DlcHost = "pixeldrain" | "filekeeper";
 
 type PendingPage = {
   url: string;
@@ -85,7 +85,7 @@ type ResolvedIdmLink = {
   cookie: string;
 };
 
-const DLC_HOSTS: DlcHost[] = ["pixeldrain", "fileditch", "filekeeper"];
+const DLC_HOSTS: DlcHost[] = ["pixeldrain", "filekeeper"];
 
 const TOOL_MODES: ToolMode[] = ["auto", "wget", "idm"];
 
@@ -285,7 +285,6 @@ function Index() {
 
   const [dlcHost, setDlcHost] = useState<DlcHost>("pixeldrain");
   const [status, setStatus] = useState<StatusMessage | null>(null);
-  const [clearance, setClearance] = useState("");
   const [cloudflareProgress, setCloudflareProgress] = useState<{
     done: number;
     total: number;
@@ -611,7 +610,7 @@ function Index() {
       applyResult(result, false);
 
       try {
-        await navigator.clipboard.writeText(buildWget(downloadable, clearance));
+        await navigator.clipboard.writeText(buildWget(downloadable));
 
         setStatus({
           kind: "success",
@@ -719,8 +718,6 @@ function Index() {
     [selectedItems, mode],
   );
 
-  const hasFileDitch = wgetItems.some((item) => item.host === "fileditch");
-
   const hasFileKeeper = wgetItems.some((item) => item.host === "filekeeper");
 
   const forcedPageHosts = wgetItems.some((item) => item.tool === "idm");
@@ -740,7 +737,7 @@ function Index() {
     [idmItems],
   );
 
-  const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
+  const command = useMemo(() => buildWget(wgetItems), [wgetItems]);
 
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
   const idmExport = idmList;
@@ -962,7 +959,6 @@ function Index() {
     setPasteValue("");
     setExcluded(new Set<string>());
     setStatus(null);
-    setClearance("");
     setCopied(false);
     setCopiedIdm(false);
     setIncludeOptional(false);
@@ -1270,7 +1266,7 @@ function Index() {
                 setActivePaste("__manual__");
                 setPasteValue(event.target.value);
               }}
-              placeholder="Paste Pixeldrain, FileDitch, FileKeeper, or DataNodes links…"
+              placeholder="Paste Pixeldrain, , FileKeeper, or DataNodes links…"
               className="text-xs"
               style={{
                 fontFamily: "var(--font-mono-stack)",
@@ -1416,8 +1412,8 @@ function Index() {
 
               <CardContent className="grid gap-2">
                 <p className="text-xs text-muted-foreground">
-                  Auto sends Pixeldrain, FileDitch, and FileKeeper to wget; DataNodes to IDM. No
-                  supported host is hidden just because another host is present.
+                  Auto sends Pixeldrain, , and FileKeeper to wget; DataNodes to IDM. No supported
+                  host is hidden just because another host is present.
                 </p>
 
                 {hasOptional && !includeOptional && (
@@ -1535,10 +1531,7 @@ function Index() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        downloadText(
-                          buildShellScript(wgetItems, clearance),
-                          exportName(wgetItems, url, "sh"),
-                        )
+                        downloadText(buildShellScript(wgetItems), exportName(wgetItems, url, "sh"))
                       }
                     >
                       <FileDown className="h-4 w-4" />
@@ -1584,42 +1577,10 @@ function Index() {
                     </div>
                   )}
 
-                  {hasFileDitch && (
-                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-                      <p className="mb-2 text-xs text-muted-foreground">
-                        <strong className="text-foreground">FileDitch browser pass.</strong> If
-                        requested by the downloader, paste your own FileDitch{" "}
-                        <code>cf_clearance</code> cookie. It may expire or be tied to your browser
-                        and IP address.
-                      </p>
-
-                      <Input
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        aria-label="FileDitch cf_clearance cookie"
-                        value={clearance}
-                        onChange={(event) => setClearance(event.target.value)}
-                        placeholder="cf_clearance value (optional)"
-                        className="h-9 text-xs"
-                        style={{
-                          fontFamily: "var(--font-mono-stack)",
-                        }}
-                      />
-
-                      <p className="mt-2 text-xs text-amber-500">
-                        This field is kept in page memory and is not sent to the scraper server.
-                        However, its value is embedded in copied commands and exported scripts and
-                        may appear in shell history or process arguments. Do not share those
-                        exports. Clear session removes the value from this page.
-                      </p>
-                    </div>
-                  )}
-
                   <p className="text-xs text-muted-foreground">
                     Paste the command into Bash on Linux/WSL with wget, setsid, and nohup installed.
-                    FileKeeper and FileDitch also require Python 3. Downloads run in the background;
-                    monitor them with <code>tail -f wget.log</code>.
+                    FileKeeper and also require Python 3. Downloads run in the background; monitor
+                    them with <code>tail -f wget.log</code>.
                   </p>
 
                   <p className="text-xs text-muted-foreground">

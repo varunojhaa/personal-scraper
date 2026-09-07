@@ -100,10 +100,10 @@
     oklch(0.78 0.18 155 / 0.18),
     oklch(0.72 0.15 210 / 0.14)
   );
-  --shadow-glow: 0 0 0 1px oklch(0.78 0.18 155 / 0.25), 0 18px 50px -20px oklch(0.78 0.18 155 / 0.35);
+  --shadow-glow:
+    0 0 0 1px oklch(0.78 0.18 155 / 0.25), 0 18px 50px -20px oklch(0.78 0.18 155 / 0.35);
   --font-mono-stack: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-
 
 .dark {
   --background: oklch(0.129 0.042 264.695);

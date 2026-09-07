@@ -32,11 +32,10 @@ test("extracts all supported hosts and deduplicates Pixeldrain API links", () =>
     https://pixeldrain.com/u/abcd1234
     https://pixeldrain.com/api/file/abcd1234?download
     https://pixeldrain.com/api/list/list1234/zip
-    https://fileditchfiles.me/files/example.zip
     https://datanodes.to/abcd1234/example.zip
     https://filekeeper.net/abcd1234/fg-optional-bonus.bin
   `);
-  assert.equal(found.length, 5);
+  assert.equal(found.length, 4);
   assert.equal(
     found.find((item) => item.kind === "list").directUrl,
     "https://pixeldrain.com/api/list/list1234/zip",

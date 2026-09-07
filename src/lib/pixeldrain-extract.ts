@@ -1,4 +1,4 @@
-export type HostKey = "pixeldrain" | "fileditch" | "datanodes" | "filekeeper";
+export type HostKey = "pixeldrain" | "datanodes" | "filekeeper";
 
 export type PixeldrainItem = {
   id: string;
@@ -27,7 +27,6 @@ export type ScrapeResult = {
 
 export const HOST_LABELS: Record<HostKey, string> = {
   pixeldrain: "Pixeldrain",
-  fileditch: "FileDitch",
   datanodes: "DataNodes",
   filekeeper: "FileKeeper",
 };
@@ -75,14 +74,6 @@ const RULES: Rule[] = [
     kind: "list",
     page: (id) => `https://pixeldrain.com/l/${id}`,
     direct: (id) => `https://pixeldrain.com/api/list/${id}/zip`,
-    tool: "wget",
-  },
-  {
-    re: /((?:[a-z0-9-]+\.)?fileditch(?:files)?\.(?:st|me|com)\/[^\s"'<>]{4,300}\.[A-Za-z0-9]{2,5}(?:\?[^\s"'<>]*)?)/gi,
-    host: "fileditch",
-    kind: "file",
-    page: (id) => `https://${id}`,
-    direct: (id) => `https://${id}`,
     tool: "wget",
   },
   {
@@ -275,12 +266,6 @@ export function isFileHostUrl(url: string): boolean {
 
     const domains = [
       "pixeldrain.com",
-      "fileditch.st",
-      "fileditch.me",
-      "fileditch.com",
-      "fileditchfiles.st",
-      "fileditchfiles.me",
-      "fileditchfiles.com",
       // Unsupported hosts remain here so scans/pasted URLs never fetch their pages.
       "fuckingfast.co",
       "fuckingfast.net",
@@ -299,134 +284,6 @@ export function isFileHostUrl(url: string): boolean {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-export function sanitizeClearance(raw: string): string {
-  const value = /cf_clearance\s*[=:]\s*([^\s;,"']+)/i.exec(raw)?.[1] ?? raw;
-
-  return Array.from(value.trim())
-    .filter((character) => {
-      const code = character.charCodeAt(0);
-
-      return code >= 33 && code <= 126 && !`;,"'`.includes(character);
-    })
-    .join("");
-}
-
-function fileDitchCommand(item: PixeldrainItem, common: string, rawClearance = ""): string {
-  const clearance = sanitizeClearance(rawClearance);
-  const filename = safeFilename(item.filename ?? "") || "fileditch-download";
-
-  const python = String.raw`import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.error,urllib.parse,urllib.request
-url,name,clearance=sys.argv[1],sys.argv[2],sys.argv[3]
-ua=${JSON.stringify(UA)}
-opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-
-def headers():
-    h={
-        "User-Agent":ua,
-        "Accept":"text/html,application/xhtml+xml,*/*",
-        "Accept-Language":"en-US,en;q=0.9",
-    }
-    if clearance:
-        h["Cookie"]="cf_clearance="+clearance
-    return h
-
-def request(target,data=None):
-    req=urllib.request.Request(target,data=data,headers=headers())
-    try:
-        with opener.open(req,timeout=60) as response:
-            return response.geturl(),response.read().decode("utf-8","replace")
-    except urllib.error.HTTPError as err:
-        body=err.read(262144).decode("utf-8","replace")
-        if err.code in (403,503) and re.search(
-            r"Just a moment|cf-chl|challenges\.cloudflare\.com",
-            body,re.I,
-        ):
-            raise SystemExit(
-                "FileDitch requires browser verification. Open the file "
-                "page in your browser and use a fresh cf_clearance cookie; "
-                "it may also be tied to your browser and IP."
-            )
-        raise SystemExit(
-            "FileDitch returned HTTP %s for %s" % (err.code,target)
-        )
-    except urllib.error.URLError as err:
-        raise SystemExit("FileDitch request failed: "+str(err.reason))
-
-def direct(page):
-    match=re.search(
-        r"var\s+u\s*=\s*(\[[\s\S]*?\])\.join\([\"']{2}\)",
-        page,re.I,
-    )
-    return "".join(json.loads(match.group(1))) if match else ""
-
-final,page=request(url)
-media=direct(page)
-
-if not media:
-    fields={
-        H.unescape(k):H.unescape(v)
-        for k,v in re.findall(
-            r"<input\b[^>]*\bname=[\"']([^\"']+)[\"'][^>]*\bvalue=[\"']([^\"']*)[\"'][^>]*>",
-            page,re.I,
-        )
-    }
-
-    challenge=fields.get("pow_challenge","")
-
-    try:
-        difficulty=int(fields.get("pow_diff","0"))
-    except ValueError:
-        raise SystemExit("FileDitch returned an invalid verification difficulty")
-
-    if not challenge or not 1<=difficulty<=24:
-        raise SystemExit(
-            "FileDitch verification challenge was not found "
-            "or its difficulty is unsupported"
-        )
-
-    nonce=0
-    while True:
-        digest=hashlib.sha256(
-            (challenge+":"+str(nonce)).encode()
-        ).digest()
-
-        if int.from_bytes(digest,"big") >> (256-difficulty) == 0:
-            break
-
-        nonce+=1
-
-    fields["pow_nonce"]=str(nonce)
-    final,page=request(
-        final,
-        urllib.parse.urlencode(fields).encode(),
-    )
-    media=direct(page)
-
-if not media.startswith("https://"):
-    raise SystemExit("FileDitch did not return a download URL")
-
-cmd=[
-    "wget",
-    *shlex.split(${JSON.stringify(common)}),
-    "-O",name,
-    "--user-agent="+ua,
-    "--referer="+url,
-]
-
-if clearance:
-    cmd.append("--header=Cookie: cf_clearance="+clearance)
-
-raise SystemExit(subprocess.call(cmd+["--",media]))
-`;
-
-  return (
-    `python3 -c ${shellQuote(python)} ` +
-    `${shellQuote(item.pageUrl)} ` +
-    `${shellQuote(filename)} ` +
-    `${shellQuote(clearance)}`
-  );
 }
 
 /**
@@ -1228,7 +1085,7 @@ if __name__=="__main__":
 }
 
 /** Shared command generation for both export formats. */
-function itemCommand(item: PixeldrainItem, clearance = ""): { command: string; filename: string } {
+function itemCommand(item: PixeldrainItem): { command: string; filename: string } {
   const filename = safeFilename(item.filename ?? "");
 
   const normalized: PixeldrainItem = {
@@ -1239,13 +1096,6 @@ function itemCommand(item: PixeldrainItem, clearance = ""): { command: string; f
     normalized.filename = filename;
   } else {
     delete normalized.filename;
-  }
-
-  if (item.host === "fileditch") {
-    return {
-      filename,
-      command: fileDitchCommand(normalized, COMMON_WGET, clearance),
-    };
   }
 
   if (item.host === "filekeeper") {
@@ -1273,11 +1123,11 @@ function completedTest(filename: string): string {
   return `[ -f ${shellQuote(`${filename}.done`)} ] && ` + `[ -f ${shellQuote(filename)} ]`;
 }
 
-export function buildWget(items: PixeldrainItem[], clearance = ""): string {
+export function buildWget(items: PixeldrainItem[]): string {
   if (!items.length) return "";
 
   const segments = items.map((item) => {
-    const { command, filename } = itemCommand(item, clearance);
+    const { command, filename } = itemCommand(item);
 
     if (!filename) return command;
 
@@ -1297,11 +1147,11 @@ export function buildWget(items: PixeldrainItem[], clearance = ""): string {
   );
 }
 
-export function buildShellScript(items: PixeldrainItem[], clearance = ""): string {
+export function buildShellScript(items: PixeldrainItem[]): string {
   if (!items.length) return "";
 
   const lines = items.map((item) => {
-    const { command, filename } = itemCommand(item, clearance);
+    const { command, filename } = itemCommand(item);
     const label = filename || item.pageUrl;
 
     const failure =

@@ -1,6 +1,6 @@
 # Personal Scraper
 
-A personal link scraper that extracts Pixeldrain, FileDitch, FileKeeper, and DataNodes links, then generates `wget` commands or IDM URL lists. FileKeeper pages use a local Python resolver for downloads or IDM clipboard batch import. Not a universal scraper — it only supports these hosts.
+A personal link scraper that extracts Pixeldrain, FileKeeper, and DataNodes links, then generates `wget` commands or IDM URL lists. FileKeeper pages use a local Python resolver for downloads or IDM clipboard batch import. Not a universal scraper — it only supports these hosts.
 
 ## License
 
