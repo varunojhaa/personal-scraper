@@ -50,6 +50,7 @@ import {
   isFileHostUrl,
   validateManualInput,
   HOST_LABELS,
+  UA,
   type PixeldrainItem,
   type ScrapeResult,
 } from "@/lib/pixeldrain-extract";
@@ -873,7 +874,8 @@ function Index() {
     const anchor = document.createElement("a");
 
     try {
-      const blob = new Blob([content], {
+      const windowsContent = content.replace(/\r?\n/g, "\r\n");
+      const blob = new Blob([windowsContent], {
         type: "text/plain;charset=utf-8",
       });
 
@@ -1719,6 +1721,14 @@ function Index() {
                         batches, retaining the countdown and session cookies, without downloading
                         the files. IDM imports the resulting URLs through its clipboard batch
                         dialog.
+                      </p>
+                      <p className="text-xs text-amber-500">
+                        <strong>Important for IDM:</strong> FileKeeper tunnel links can return
+                        <code className="mx-1">HTTP 403 Forbidden</code> when IDM uses its default
+                        User-Agent. In IDM, use this User-Agent:
+                        <code className="mt-1 block break-all rounded bg-background/70 p-2">
+                          {UA}
+                        </code>
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button

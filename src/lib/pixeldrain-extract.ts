@@ -35,7 +35,7 @@ export const HOST_LABELS: Record<HostKey, string> = {
 export const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
   "AppleWebKit/537.36 (KHTML, like Gecko) " +
-  "Chrome/124.0 Safari/537.36";
+  "Chrome/131.0.0.0 Safari/537.36";
 
 export const PROTECTED_HOSTS = [
   "filecrypt.cc",
@@ -1194,21 +1194,21 @@ def export_idm():
     # Signed URLs and cookies are private. Refuse to overwrite earlier exports.
     fd=os.open(args.output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     succeeded=0
-    with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as output:
+    with os.fdopen(fd,"w",encoding="utf-8",newline="") as output:
         for index,item in enumerate(batch,args.start):
             url,name=item["url"],item["name"]
             jar.clear()
             print("Resolving file %s/%s: %s" % (index,len(FILES),name or "FileKeeper"),flush=True)
             try:
                 link,referer,cookie=main(resolve_only=True)
-                record="<"+single_line(link)+">\nreferer: "+single_line(referer)+"\nUser-Agent: "+ua+"\n"
+                record="<"+single_line(link)+"\r\nreferer: "+single_line(referer)+"\r\nUser-Agent: "+ua+"\r\n"
                 if cookie:
-                    record+="Cookie: "+single_line(cookie)+"\n"
+                    record+="Cookie: "+single_line(cookie)+"\r\n"
                 if export_ef2:
-                    record += ">\n"
+                    record += "\r\n>\r\n"
                     output.write(record)
                 else:
-                    output.write(single_line(link)+"\n")
+                    output.write(single_line(link)+"\r\n")
                 output.flush()
                 succeeded+=1
             except (SystemExit,OSError,ValueError) as error:
@@ -1512,11 +1512,11 @@ export function buildIdmEf2(items: PixeldrainItem[]): string {
     .filter(isResolvedFileKeeperUrl)
     .map(
       (item) =>
-        `<${singleLine(item.directUrl)}>\n` +
-        `referer: ${singleLine(item.pageUrl)}\n` +
-        `User-Agent: ${UA}\n` +
-        (item.cookie ? `Cookie: ${singleLine(item.cookie)}\n` : "") +
-        `\n>`,
+        `<${singleLine(item.directUrl)}\r\n` +
+        `referer: ${singleLine(item.pageUrl)}\r\n` +
+        `User-Agent: ${UA}\r\n` +
+        (item.cookie ? `Cookie: ${singleLine(item.cookie)}\r\n` : "") +
+        `\r\n>`,
     )
-    .join("\n");
+    .join("\r\n");
 }

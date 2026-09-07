@@ -135,8 +135,8 @@ async function resolveOne(pageUrl: string): Promise<Resolved> {
       if (!location) throw new Error("FileKeeper returned an invalid redirect.");
       const target = new URL(location, current).href;
       if (isDownload(target)) return { url: target, referer: current, cookie };
-      current = sameOrigin(current, target);
       referer = current;
+      current = sameOrigin(current, target);
       method = "GET";
       body = undefined;
       continue;

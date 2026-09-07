@@ -40,15 +40,21 @@ test("IDM lists exclude FileKeeper HTML pages but preserve signed downloads", ()
   const ef2Script = buildFileKeeperIdmScript([item], "ef2");
   assert.ok(ef2Script.includes('default_output="filekeeper-idm-%s.ef2"'));
   assert.ok(ef2Script.includes("export_ef2=True"));
-  assert.ok(ef2Script.includes('record="<"+single_line(link)+">\\n'));
-  assert.ok(ef2Script.includes('record += ">\\n"'));
+  assert.ok(ef2Script.includes('record="<"+single_line(link)+"\\r\\n'));
+  assert.ok(ef2Script.includes('record += "\\r\\n>\\r\\n"'));
   const directUrl = "https://cdn.dlproxy.uk/download/example?signature=abc%2Bdef&expires=123";
   const direct = { ...item, directUrl };
   assert.equal(buildIdmList([direct]), directUrl);
   const directEf2 = buildIdmEf2([direct]);
-  assert.ok(directEf2.startsWith(`<${directUrl}>\n`));
+  assert.ok(directEf2.startsWith(`<${directUrl}\r\n`));
   assert.ok(directEf2.includes("referer: "));
-  assert.ok(directEf2.endsWith("\n>"));
+  assert.ok(
+    directEf2.includes(
+      "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    ),
+  );
+  assert.ok(directEf2.endsWith("\r\n>"));
+  assert.equal(directEf2.match(/>/g)?.length, 1);
   assert.equal(
     buildIdmList([{ ...item, directUrl: "https://dlproxy.uk.evil.example/download/a" }]),
     "",
