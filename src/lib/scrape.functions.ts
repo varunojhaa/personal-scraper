@@ -40,7 +40,7 @@ export const resolveDlcContainer = createServerFn({ method: "POST" })
         base64: z.string().min(16).max(8_000_000),
         filename: z.string().max(300).optional().default("container.dlc"),
         follow: z.boolean().optional().default(true),
-        hostFilter: z.enum(["pixeldrain", "fileditch"]).optional(),
+        hostFilter: z.enum(["pixeldrain", "fileditch", "filekeeper"]).optional(),
       })
       .parse(data),
   )
