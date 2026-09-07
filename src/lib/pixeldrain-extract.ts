@@ -370,6 +370,8 @@ export function buildWget(items: PixeldrainItem[], clearance = "") {
         ? `wget${cd} ${common}${out} "${i.directUrl}"`
         : i.host === "fileditch"
           ? fileDitchCommand(i, common, clearance)
+          : i.host === "filekeeper"
+            ? fileKeeperCommand(i, common)
           : `wget${cd} ${common}${out} --user-agent="${UA}" --referer="${i.pageUrl}" "${i.directUrl}"`;
     // Finished files leave a .done marker, so a re-run skips them instead of
     // re-opening a connection that stalls and needs Ctrl+C. Partial files have
