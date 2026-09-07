@@ -16,6 +16,7 @@ import {
   FileDown,
   Github,
   Upload,
+  CloudDownload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,8 +28,14 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
+import { Progress } from "@/components/ui/progress";
 
-import { scrapePixeldrain, resolvePastedContent, resolveDlcContainer } from "@/lib/scrape.functions";
+import {
+  scrapePixeldrain,
+  resolvePastedContent,
+  resolveDlcContainer,
+  resolveFileKeeperIdmLinks,
+} from "@/lib/scrape.functions";
 
 import {
   extract,
@@ -36,6 +43,8 @@ import {
   buildShellScript,
   buildIdmList,
   buildIdmEf2,
+  buildFileKeeperIdmScript,
+  isIdmReady,
   exportName,
   isProtected,
   isFileHostUrl,
@@ -46,6 +55,8 @@ import {
 } from "@/lib/pixeldrain-extract";
 
 type ToolMode = "auto" | "wget" | "idm";
+type IdmFormat = "txt" | "ef2";
+
 type DlcHost = "pixeldrain" | "fileditch" | "filekeeper";
 
 type PendingPage = {
@@ -69,19 +80,28 @@ type StatusMessage = {
   kind: "working" | "success" | "error" | "info";
 };
 
+type ResolvedIdmLink = {
+  url: string;
+  referer: string;
+  cookie: string;
+};
+
 const DLC_HOSTS: DlcHost[] = ["pixeldrain", "fileditch", "filekeeper"];
 
 const TOOL_MODES: ToolMode[] = ["auto", "wget", "idm"];
 
 /** Ignore filename fragments when identifying an existing file. */
-const keyOf = (item: PixeldrainItem) => `${item.host}:${item.kind}:${item.id.split("#")[0]}`;
+const keyOf = (item: PixeldrainItem): string =>
+  `${item.host}:${item.kind}:${item.id.split("#")[0]}`;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function normalizeItem(item: PixeldrainItem): PixeldrainItem {
-  if (item.host !== "filekeeper") return item;
+  if (item.host !== "filekeeper") {
+    return item;
+  }
 
   // Older server responses may incorrectly use the file code or signed
   // URL token as the filename. Let wget use Content-Disposition instead.
@@ -109,32 +129,56 @@ function normalizeItem(item: PixeldrainItem): PixeldrainItem {
     // Keep available metadata if the URL cannot be parsed.
   }
 
-  return {
+  const normalized: PixeldrainItem = {
     ...item,
-    filename,
     tool: "wget",
   };
+
+  // With exactOptionalPropertyTypes, absent values must be omitted.
+  if (filename !== undefined) {
+    normalized.filename = filename;
+  } else {
+    delete normalized.filename;
+  }
+
+  return normalized;
 }
 
 function mergeItems(previous: PixeldrainItem[], incoming: PixeldrainItem[]): PixeldrainItem[] {
-  const map = new Map(
-    previous.map((item) => {
-      const normalized = normalizeItem(item);
-      return [keyOf(normalized), normalized] as const;
-    }),
-  );
+  const map = new Map<string, PixeldrainItem>();
+
+  for (const raw of previous) {
+    const item = normalizeItem(raw);
+    map.set(keyOf(item), item);
+  }
 
   for (const raw of incoming) {
     const item = normalizeItem(raw);
     const key = keyOf(item);
     const existing = map.get(key);
 
-    map.set(key, {
+    const filename = item.filename || existing?.filename;
+    const optional = item.optional ?? existing?.optional;
+
+    const merged: PixeldrainItem = {
       ...existing,
       ...item,
-      filename: item.filename || existing?.filename,
-      optional: item.optional ?? existing?.optional,
-    });
+    };
+
+    if (filename !== undefined) {
+      merged.filename = filename;
+    } else {
+      delete merged.filename;
+    }
+
+    // Preserve false; only undefined means the property is absent.
+    if (optional !== undefined) {
+      merged.optional = optional;
+    } else {
+      delete merged.optional;
+    }
+
+    map.set(key, merged);
   }
 
   return [...map.values()];
@@ -193,14 +237,49 @@ export const Route = createFileRoute("/")({
       },
       {
         property: "og:description",
-        content: "Collect supported download links and export wget commands or IDM lists for the files you select.",
+        content:
+          "Collect supported download links and export wget commands or IDM lists for the files you select.",
       },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      {
+        property: "og:type",
+        content: "website",
+      },
+      {
+        name: "twitter:card",
+        content: "summary_large_image",
+      },
     ],
   }),
   component: Index,
 });
+
+function isFitgirlSource(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "fitgirl-repacks.site" || host.endsWith(".fitgirl-repacks.site");
+  } catch {
+    return false;
+  }
+}
+
+function buildResolvedIdmExport(links: ResolvedIdmLink[], format: IdmFormat): string {
+  if (format === "txt") {
+    return links.map((link) => link.url).join("\n");
+  }
+
+  return buildIdmEf2(
+    links.map((link, index) => ({
+      id: `resolved-${index + 1}`,
+      kind: "file",
+      host: "filekeeper",
+      pageUrl: link.referer,
+      directUrl: link.url,
+      foundOn: link.referer,
+      tool: "idm",
+      ...(link.cookie ? { cookie: link.cookie } : {}),
+    })),
+  );
+}
 
 function Index() {
   const [url, setUrl] = useState("");
@@ -215,6 +294,7 @@ function Index() {
   const [pasteValue, setPasteValue] = useState("");
 
   const [mode, setMode] = useState<ToolMode>("auto");
+  const [idmFormat, setIdmFormat] = useState<IdmFormat>("txt");
   const [includeOptional, setIncludeOptional] = useState(false);
 
   /** Everything is selected unless its key appears here. */
@@ -223,25 +303,91 @@ function Index() {
   const [dlcHost, setDlcHost] = useState<DlcHost>("pixeldrain");
   const [status, setStatus] = useState<StatusMessage | null>(null);
   const [clearance, setClearance] = useState("");
+  const [cloudflareProgress, setCloudflareProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idmCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-      if (idmCopyTimer.current) clearTimeout(idmCopyTimer.current);
+      if (copyTimer.current) {
+        clearTimeout(copyTimer.current);
+      }
+
+      if (idmCopyTimer.current) {
+        clearTimeout(idmCopyTimer.current);
+      }
     };
   }, []);
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
   const resolveDlc = useServerFn(resolveDlcContainer);
+  const resolveFileKeeper = useServerFn(resolveFileKeeperIdmLinks);
+
+  const resolveFileKeeperMutation = useMutation({
+    mutationFn: async (selected: PixeldrainItem[]) => {
+      const links: ResolvedIdmLink[] = [];
+      const failed: string[] = [];
+      for (let start = 0; start < selected.length; start += 3) {
+        const batch = selected.slice(start, start + 3);
+        try {
+          const result = await resolveFileKeeper({
+            data: {
+              items: batch.map((item) => ({
+                pageUrl: item.pageUrl,
+                ...(item.filename ? { filename: item.filename } : {}),
+              })),
+            },
+          });
+          links.push(...result.links);
+          failed.push(
+            ...result.failed.map((message) => `Batch ${Math.floor(start / 3) + 1}: ${message}`),
+          );
+        } catch (error) {
+          failed.push(
+            `Batch ${Math.floor(start / 3) + 1}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        setCloudflareProgress({
+          done: Math.min(start + batch.length, selected.length),
+          total: selected.length,
+        });
+      }
+      return { links, resolved: links.length, failed };
+    },
+    onMutate: (selected) => {
+      setCloudflareProgress({ done: 0, total: selected.length });
+      setStatus({ kind: "working", text: "Resolving FileKeeper links on Cloudflare…" });
+    },
+    onError: (error) => {
+      setCloudflareProgress(null);
+      reportError(error, "Cloudflare FileKeeper resolution failed");
+    },
+    onSuccess: ({ links, resolved, failed }) => {
+      setCloudflareProgress(null);
+      downloadText(
+        buildResolvedIdmExport(links, idmFormat),
+        `filekeeper-cloudflare-idm-urls.${idmFormat}`,
+      );
+      const text = `Created an IDM URL list for ${resolved} file(s).${failed.length ? ` ${failed.length} failed.` : ""}`;
+      setStatus({ kind: failed.length ? "info" : "success", text });
+      if (failed.length) toast.warning(failed.join(" "));
+      else toast.success(text);
+    },
+  });
 
   async function resolveInput(content: string, label: string): Promise<ScrapeResult> {
     const local = localFileKeeperResult(content, label);
 
-    if (local) return local;
+    if (local) {
+      return local;
+    }
 
     return resolvePaste({
       data: { content, label },
@@ -256,14 +402,21 @@ function Index() {
     setScannedPages((previous) => {
       const next = replace ? new Set<string>() : new Set(previous);
 
-      for (const page of result.pagesScanned) next.add(page);
+      for (const page of result.pagesScanned) {
+        next.add(page);
+      }
+
       return next;
     });
 
     setPending((previous) => mergePending(replace ? [] : previous, result.protectedPages));
 
     if (replace) {
-      setExcluded(new Set(selectedHost ? incoming.filter((item) => item.host !== selectedHost).map(keyOf) : []));
+      setExcluded(
+        new Set(
+          selectedHost ? incoming.filter((item) => item.host !== selectedHost).map(keyOf) : [],
+        ),
+      );
 
       setCopied(false);
       setCopiedIdm(false);
@@ -277,7 +430,13 @@ function Index() {
   }
 
   const scrapeMutation = useMutation({
-    mutationFn: (target: string) => scrape({ data: { url: target, deep: false } }),
+    mutationFn: (target: string) =>
+      scrape({
+        data: {
+          url: target,
+          deep: false,
+        },
+      }),
 
     onMutate: (target) => {
       setStatus({
@@ -291,20 +450,37 @@ function Index() {
     },
 
     onSuccess: (result) => {
-      applyResult(result, false);
+      const fitgirl = isFitgirlSource(result.sourceUrl);
+      applyResult(result, false, fitgirl ? "filekeeper" : undefined);
+      if (fitgirl) {
+        setDlcHost("filekeeper");
+        setMode("idm");
+        setExcluded((previous) => {
+          const next = new Set(previous);
+          for (const item of result.items) {
+            if (item.host !== "filekeeper") next.add(keyOf(item));
+          }
+          return next;
+        });
+      }
 
       const text =
         `Scanned ${result.pagesScanned.length} page(s), ` +
         `found ${result.items.length} link(s).` +
-        (result.protectedPages.length ? ` ${result.protectedPages.length} page(s) need browser verification.` : "");
+        (result.protectedPages.length
+          ? ` ${result.protectedPages.length} page(s) need browser verification.`
+          : "");
 
       setStatus({
         kind: result.items.length ? "success" : "info",
         text,
       });
 
-      if (result.items.length) toast.success(text);
-      else toast.info(text);
+      if (result.items.length) {
+        toast.success(text);
+      } else {
+        toast.info(text);
+      }
     },
   });
 
@@ -341,7 +517,9 @@ function Index() {
 
       if (!variables.replace) {
         setPending((previous) =>
-          previous.map((page) => (page.url === variables.label ? { ...page, status: "resolved" } : page)),
+          previous.map((page) =>
+            page.url === variables.label ? { ...page, status: "resolved" } : page,
+          ),
         );
       }
 
@@ -373,6 +551,7 @@ function Index() {
         data: {
           base64,
           filename: file.name,
+
           // FileKeeper pages should not be fetched to create items.
           // Its generated downloader handles the free-download flow.
           follow: host !== "filekeeper",
@@ -384,7 +563,7 @@ function Index() {
     onMutate: ({ file, host }) => {
       setStatus({
         kind: "working",
-        text: `Decrypting ${file.name} and collecting ${HOST_LABELS[host]} links…`,
+        text: `Decrypting ${file.name} and collecting ` + `${HOST_LABELS[host]} links…`,
       });
     },
 
@@ -470,7 +649,11 @@ function Index() {
   });
 
   const busy =
-    scrapeMutation.isPending || pasteMutation.isPending || dlcMutation.isPending || quickWgetMutation.isPending;
+    scrapeMutation.isPending ||
+    pasteMutation.isPending ||
+    dlcMutation.isPending ||
+    quickWgetMutation.isPending ||
+    resolveFileKeeperMutation.isPending;
 
   /**
    * Only show quick wget for one complete supported URL whose extracted
@@ -478,10 +661,14 @@ function Index() {
    */
   const singleWgetLink = useMemo(() => {
     const target = url.trim();
-    if (!target || /\s/.test(target)) return null;
+
+    if (!target || /\s/.test(target)) {
+      return null;
+    }
 
     try {
       const parsed = new URL(target);
+
       if (!["http:", "https:"].includes(parsed.protocol)) {
         return null;
       }
@@ -489,16 +676,30 @@ function Index() {
       return null;
     }
 
-    if (!isFileHostUrl(target)) return null;
+    if (!isFileHostUrl(target)) {
+      return null;
+    }
 
     const found = new Map<string, PixeldrainItem>();
     extract(target, target, found);
+
     const entries = [...found.values()];
 
-    if (entries.length !== 1) return null;
+    if (entries.length !== 1) {
+      return null;
+    }
 
-    const item = normalizeItem(entries[0]!);
-    if (item.tool !== "wget") return null;
+    const first = entries[0];
+
+    if (!first) {
+      return null;
+    }
+
+    const item = normalizeItem(first);
+
+    if (item.tool !== "wget") {
+      return null;
+    }
 
     return {
       url: target,
@@ -520,12 +721,21 @@ function Index() {
 
   const wgetItems = useMemo(
     () =>
-      mode === "idm" ? [] : mode === "wget" ? selectedItems : selectedItems.filter((item) => item.tool === "wget"),
+      mode === "idm"
+        ? []
+        : mode === "wget"
+          ? selectedItems
+          : selectedItems.filter((item) => item.tool === "wget"),
     [selectedItems, mode],
   );
 
   const idmItems = useMemo(
-    () => (mode === "wget" ? [] : mode === "idm" ? selectedItems : selectedItems.filter((item) => item.tool === "idm")),
+    () =>
+      mode === "wget"
+        ? []
+        : mode === "idm"
+          ? selectedItems
+          : selectedItems.filter((item) => item.tool === "idm"),
     [selectedItems, mode],
   );
 
@@ -537,9 +747,31 @@ function Index() {
 
   const idmHasFileKeeper = idmItems.some((item) => item.host === "filekeeper");
 
+  const cloudflareFileKeeperItems = useMemo(
+    () =>
+      idmItems.filter((item) => {
+        try {
+          const host = new URL(item.pageUrl).hostname.toLowerCase();
+          return host === "filekeeper.net" || host.endsWith(".filekeeper.net");
+        } catch {
+          return false;
+        }
+      }),
+    [idmItems],
+  );
+
   const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
 
   const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
+  const idmExport = useMemo(
+    () => (idmFormat === "ef2" ? buildIdmEf2(idmItems) : idmList),
+    [idmFormat, idmItems, idmList],
+  );
+
+  const idmReadyCount = useMemo(
+    () => idmItems.filter((item) => isIdmReady(item)).length,
+    [idmItems],
+  );
 
   const openMe = pending.filter((page) => page.status === "open-me");
 
@@ -557,8 +789,11 @@ function Index() {
     setExcluded((previous) => {
       const next = new Set(previous);
 
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
 
       return next;
     });
@@ -567,7 +802,11 @@ function Index() {
   function selectAll() {
     setExcluded((previous) => {
       const next = new Set(previous);
-      for (const item of visibleItems) next.delete(keyOf(item));
+
+      for (const item of visibleItems) {
+        next.delete(keyOf(item));
+      }
+
       return next;
     });
   }
@@ -575,20 +814,29 @@ function Index() {
   function selectNone() {
     setExcluded((previous) => {
       const next = new Set(previous);
-      for (const item of visibleItems) next.add(keyOf(item));
+
+      for (const item of visibleItems) {
+        next.add(keyOf(item));
+      }
+
       return next;
     });
   }
 
   async function copyCommand() {
-    if (!command) return;
+    if (!command) {
+      return;
+    }
 
     try {
       await navigator.clipboard.writeText(command);
       setCopied(true);
       toast.success("Command copied");
 
-      if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (copyTimer.current) {
+        clearTimeout(copyTimer.current);
+      }
+
       copyTimer.current = setTimeout(() => setCopied(false), 1600);
     } catch {
       toast.error("Clipboard access failed. Select the command manually or export it.");
@@ -596,7 +844,9 @@ function Index() {
   }
 
   async function copyIdm() {
-    if (!idmList) return;
+    if (!idmList) {
+      return;
+    }
 
     try {
       await navigator.clipboard.writeText(idmList);
@@ -630,6 +880,7 @@ function Index() {
       href = URL.createObjectURL(blob);
       anchor.href = href;
       anchor.download = filename;
+
       document.body.appendChild(anchor);
       anchor.click();
 
@@ -647,12 +898,17 @@ function Index() {
   }
 
   function submitPaste(label: string, replace: boolean) {
-    if (busy) return;
+    if (busy) {
+      return;
+    }
 
     const problem = validateManualInput(pasteValue);
 
     if (problem) {
-      setStatus({ kind: "error", text: problem });
+      setStatus({
+        kind: "error",
+        text: problem,
+      });
       toast.error(problem);
       return;
     }
@@ -665,7 +921,9 @@ function Index() {
   }
 
   function startScrape() {
-    if (busy) return;
+    if (busy) {
+      return;
+    }
 
     const target = url.trim();
 
@@ -714,7 +972,9 @@ function Index() {
   }
 
   function resetAll() {
-    if (busy) return;
+    if (busy) {
+      return;
+    }
 
     setUrl("");
     setItems([]);
@@ -730,8 +990,13 @@ function Index() {
     setIncludeOptional(false);
     setMode("auto");
 
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    if (idmCopyTimer.current) clearTimeout(idmCopyTimer.current);
+    if (copyTimer.current) {
+      clearTimeout(copyTimer.current);
+    }
+
+    if (idmCopyTimer.current) {
+      clearTimeout(idmCopyTimer.current);
+    }
 
     scrapeMutation.reset();
     pasteMutation.reset();
@@ -743,7 +1008,12 @@ function Index() {
     <main className="min-h-screen bg-background">
       <Toaster />
 
-      <div className="border-b border-border" style={{ backgroundImage: "var(--gradient-hero)" }}>
+      <div
+        className="border-b border-border"
+        style={{
+          backgroundImage: "var(--gradient-hero)",
+        }}
+      >
         <div className="mx-auto max-w-4xl px-6 py-16">
           <div className="mb-4 flex items-center gap-2">
             <Badge variant="outline" className="gap-1.5">
@@ -764,16 +1034,19 @@ function Index() {
             </Button>
           </div>
 
-          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">Personal Scraper</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
+            Personal Scraper
+          </h1>
 
           <p className="mt-2 text-sm font-medium text-amber-300">
-            Not a universal scraper. Supported download hosts: {Object.values(HOST_LABELS).join(", ")}.
-            Captcha-protected pages must be opened in your browser.
+            Not a universal scraper. Supported download hosts:{" "}
+            {Object.values(HOST_LABELS).join(", ")}. Captcha-protected pages must be opened in your
+            browser.
           </p>
 
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Scan a page, paste supported links, or upload a .dlc container. Select files and export a wget command or
-            IDM download list.
+            Scan a page, paste supported links, or upload a .dlc container. Select files and export
+            a wget command or IDM download list.
           </p>
 
           <form
@@ -793,12 +1066,17 @@ function Index() {
                 value={url}
                 disabled={busy}
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://filekeeper.net/bq63fli1d8x8"
+                placeholder="Paste link"
                 className="h-12 border-primary/40 pl-9 text-base ring-primary/30"
               />
             </div>
 
-            <Button type="submit" size="lg" disabled={busy} className="h-12 px-7 text-base shadow-[var(--shadow-glow)]">
+            <Button
+              type="submit"
+              size="lg"
+              disabled={busy}
+              className="h-12 px-7 text-base shadow-[var(--shadow-glow)]"
+            >
               {busy ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -815,7 +1093,9 @@ function Index() {
 
           {singleWgetLink && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <p className="text-xs text-muted-foreground">Single {singleWgetLink.label} link detected.</p>
+              <p className="text-xs text-muted-foreground">
+                Single {singleWgetLink.label} link detected.
+              </p>
 
               <Button
                 size="sm"
@@ -887,13 +1167,16 @@ function Index() {
           <Card className="mb-6 border-destructive/40">
             <CardHeader className="flex-row items-center gap-2 space-y-0">
               <ShieldAlert className="h-4 w-4 text-destructive" />
-              <CardTitle className="text-base">Open me — protected pages ({openMe.length} left)</CardTitle>
+              <CardTitle className="text-base">
+                Open me — protected pages ({openMe.length} left)
+              </CardTitle>
             </CardHeader>
 
             <CardContent className="grid gap-3">
               <p className="text-sm text-muted-foreground">
-                Open a page and complete its verification. Then upload its .dlc container or paste the supported
-                download links it reveals. Pasting a result here adds to your current session.
+                Open a page and complete its verification. Then upload its .dlc container or paste
+                the supported download links it reveals. Pasting a result here adds to your current
+                session.
               </p>
 
               {pending.map((page) => (
@@ -953,7 +1236,12 @@ function Index() {
                       />
 
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => setActivePaste(null)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => setActivePaste(null)}
+                        >
                           Cancel
                         </Button>
 
@@ -985,7 +1273,8 @@ function Index() {
 
           <CardContent className="grid gap-3">
             <p className="text-xs text-muted-foreground">
-              Paste supported links or HTML. A successful manual import replaces the current file list.
+              Paste supported links or HTML. A successful manual import replaces the current file
+              list.
             </p>
 
             <Textarea
@@ -1003,14 +1292,16 @@ function Index() {
                 setActivePaste("__manual__");
                 setPasteValue(event.target.value);
               }}
-              placeholder="Paste Pixeldrain, FileDitch, FileKeeper, FuckingFast, or DataNodes links…"
+              placeholder="Paste Pixeldrain, FileDitch, FileKeeper, or DataNodes links…"
               className="text-xs"
-              style={{ fontFamily: "var(--font-mono-stack)" }}
+              style={{
+                fontFamily: "var(--font-mono-stack)",
+              }}
             />
 
             <p className="text-xs text-muted-foreground">
-              FileKeeper: prefer the original filekeeper.net URL. Fresh tunnel*.dlproxy.uk/download/ links are also
-              accepted, but signed links can expire.
+              FileKeeper: prefer the original filekeeper.net URL. Fresh tunnel*.dlproxy.uk/download/
+              links are also accepted, but signed links can expire.
             </p>
 
             <div className="flex justify-end">
@@ -1038,9 +1329,9 @@ function Index() {
 
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              Choose a JDownloader <code>.dlc</code> container. A successful import replaces the current list and
-              enables returned <strong>{HOST_LABELS[dlcHost]}</strong> links for selection. Other returned hosts remain
-              deselected.
+              Choose a JDownloader <code>.dlc</code> container. A successful import replaces the
+              current list and enables returned <strong>{HOST_LABELS[dlcHost]}</strong> links for
+              selection. Other returned hosts remain deselected.
             </p>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1065,8 +1356,9 @@ function Index() {
 
             {dlcHost === "filekeeper" && (
               <p className="text-xs text-muted-foreground">
-                FileKeeper page-following is disabled during container import. Direct FileKeeper links are resolved by
-                the generated download command. Protected wrapper links may still need manual opening.
+                FileKeeper page-following is disabled during container import. Direct FileKeeper
+                links are resolved by the generated download command. Protected wrapper links may
+                still need manual opening.
               </p>
             )}
 
@@ -1093,7 +1385,10 @@ function Index() {
                 }}
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
-                  if (!file || busy) return;
+
+                  if (!file || busy) {
+                    return;
+                  }
 
                   dlcMutation.mutate({
                     file,
@@ -1143,21 +1438,21 @@ function Index() {
 
               <CardContent className="grid gap-2">
                 <p className="text-xs text-muted-foreground">
-                  Auto sends Pixeldrain, FileDitch, and FileKeeper to wget; FuckingFast and DataNodes to IDM. No host is
-                  hidden just because another host is present.
+                  Auto sends Pixeldrain, FileDitch, and FileKeeper to wget; DataNodes to IDM. No
+                  supported host is hidden just because another host is present.
                 </p>
 
                 {hasOptional && !includeOptional && (
                   <p className="text-xs text-amber-500">
-                    Optional/selective files are hidden. Check the source instructions: some installations require at
-                    least one selective language pack.
+                    Optional/selective files are hidden. Check the source instructions: some
+                    installations require at least one selective language pack.
                   </p>
                 )}
 
                 {forcedPageHosts && (
                   <p className="text-xs text-amber-500">
-                    Forcing FuckingFast or DataNodes into wget may save an HTML page instead of the file. Use Auto or
-                    IDM unless you have a real direct download URL.
+                    Forcing DataNodes into wget may save an HTML page instead of the file. Use Auto
+                    or IDM unless you have a real direct download URL.
                   </p>
                 )}
               </CardContent>
@@ -1170,11 +1465,21 @@ function Index() {
                 </CardTitle>
 
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" disabled={!visibleItems.length} onClick={selectAll}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!visibleItems.length}
+                    onClick={selectAll}
+                  >
                     Select all
                   </Button>
 
-                  <Button variant="ghost" size="sm" disabled={!visibleItems.length} onClick={selectNone}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!visibleItems.length}
+                    onClick={selectNone}
+                  >
                     Clear selection
                   </Button>
                 </div>
@@ -1183,7 +1488,8 @@ function Index() {
               <CardContent className="grid gap-2">
                 {visibleItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    All files are hidden by the optional/selective filter. Enable the toggle above to show them.
+                    All files are hidden by the optional/selective filter. Enable the toggle above
+                    to show them.
                   </p>
                 ) : (
                   <div
@@ -1195,7 +1501,6 @@ function Index() {
                     {visibleItems.map((item) => {
                       const key = keyOf(item);
                       const checked = !excluded.has(key);
-
                       const effectiveTool = mode === "auto" ? item.tool : mode;
 
                       return (
@@ -1224,7 +1529,9 @@ function Index() {
 
                             {item.optional && <Badge variant="secondary">optional</Badge>}
 
-                            <Badge variant={effectiveTool === "wget" ? "default" : "secondary"}>{effectiveTool}</Badge>
+                            <Badge variant={effectiveTool === "wget" ? "default" : "secondary"}>
+                              {effectiveTool}
+                            </Badge>
                           </span>
                         </label>
                       );
@@ -1233,7 +1540,9 @@ function Index() {
                 )}
 
                 {visibleItems.length > 0 && selectedItems.length === 0 && (
-                  <p className="mt-2 text-xs text-muted-foreground">Select at least one file to generate an export.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Select at least one file to generate an export.
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -1248,7 +1557,10 @@ function Index() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        downloadText(buildShellScript(wgetItems, clearance), exportName(wgetItems, url, "sh"))
+                        downloadText(
+                          buildShellScript(wgetItems, clearance),
+                          exportName(wgetItems, url, "sh"),
+                        )
                       }
                     >
                       <FileDown className="h-4 w-4" />
@@ -1275,20 +1587,21 @@ function Index() {
                   {hasFileKeeper && (
                     <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs text-muted-foreground">
-                        <strong className="text-foreground">FileKeeper downloads.</strong> The generated command uses
-                        Python 3 to submit the free-download form, retain cookies, wait for an advertised countdown, and
-                        pass the signed tunnel URL to wget.
+                        <strong className="text-foreground">FileKeeper downloads.</strong> The
+                        generated command uses Python 3 to submit the free-download form, retain
+                        cookies, wait for an advertised countdown, and pass the signed tunnel URL to
+                        wget.
                       </p>
 
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Prefer the original filekeeper.net link. Pasted tunnel URLs can expire or be single-use. If the
-                        page requires a captcha or unsupported JavaScript, open it in your browser and copy a fresh
-                        download URL.
+                        Prefer the original filekeeper.net link. Pasted tunnel URLs can expire or be
+                        single-use. If the page requires a captcha or unsupported JavaScript, open
+                        it in your browser and copy a fresh download URL.
                       </p>
 
                       <p className="mt-2 text-xs text-muted-foreground">
-                        If a filename is unknown, wget uses the server&apos;s Content-Disposition header. Those items do
-                        not receive filename-based .done markers.
+                        If a filename is unknown, wget uses the server&apos;s Content-Disposition
+                        header. Those items do not receive filename-based .done markers.
                       </p>
                     </div>
                   )}
@@ -1296,9 +1609,10 @@ function Index() {
                   {hasFileDitch && (
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
                       <p className="mb-2 text-xs text-muted-foreground">
-                        <strong className="text-foreground">FileDitch browser pass.</strong> If requested by the
-                        downloader, paste your own FileDitch <code>cf_clearance</code> cookie. It may expire or be tied
-                        to your browser and IP address.
+                        <strong className="text-foreground">FileDitch browser pass.</strong> If
+                        requested by the downloader, paste your own FileDitch{" "}
+                        <code>cf_clearance</code> cookie. It may expire or be tied to your browser
+                        and IP address.
                       </p>
 
                       <Input
@@ -1316,21 +1630,23 @@ function Index() {
                       />
 
                       <p className="mt-2 text-xs text-amber-500">
-                        This field is kept in page memory and is not sent to the scraper server. However, its value is
-                        embedded in copied commands and exported scripts and may appear in shell history or process
-                        arguments. Do not share those exports. Clear session removes the value from this page.
+                        This field is kept in page memory and is not sent to the scraper server.
+                        However, its value is embedded in copied commands and exported scripts and
+                        may appear in shell history or process arguments. Do not share those
+                        exports. Clear session removes the value from this page.
                       </p>
                     </div>
                   )}
 
                   <p className="text-xs text-muted-foreground">
-                    Paste the command into Bash on Linux/WSL with wget, setsid, and nohup installed. FileKeeper and
-                    FileDitch also require Python 3. Downloads run in the background; monitor them with{" "}
-                    <code>tail -f wget.log</code>.
+                    Paste the command into Bash on Linux/WSL with wget, setsid, and nohup installed.
+                    FileKeeper and FileDitch also require Python 3. Downloads run in the background;
+                    monitor them with <code>tail -f wget.log</code>.
                   </p>
 
                   <p className="text-xs text-muted-foreground">
-                    The .sh export runs in the foreground when launched with <code>bash filename.sh</code>.
+                    The .sh export runs in the foreground when launched with{" "}
+                    <code>bash filename.sh</code>.
                   </p>
 
                   <Textarea
@@ -1350,10 +1666,27 @@ function Index() {
             {idmItems.length > 0 && (
               <Card>
                 <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
-                  <CardTitle className="text-base">IDM download list ({idmItems.length})</CardTitle>
+                  <CardTitle className="text-base">
+                    IDM export ({idmReadyCount} ready URLs)
+                  </CardTitle>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="secondary" size="sm" onClick={copyIdm}>
+                    <span className="text-xs text-muted-foreground">Format:</span>
+                    <div className="flex items-center gap-1 rounded-md border border-border p-1">
+                      {(["txt", "ef2"] as const).map((format) => (
+                        <Button
+                          key={format}
+                          variant={idmFormat === format ? "default" : "ghost"}
+                          size="sm"
+                          className="h-7 px-3 text-xs"
+                          onClick={() => setIdmFormat(format)}
+                        >
+                          .{format}
+                        </Button>
+                      ))}
+                    </div>
+
+                    <Button variant="secondary" size="sm" onClick={copyIdm} disabled={!idmList}>
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copiedIdm ? "Copied" : "Copy URLs"}
                     </Button>
@@ -1361,34 +1694,82 @@ function Index() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => downloadText(idmList, exportName(idmItems, url, "txt"))}
+                      onClick={() => downloadText(idmExport, exportName(idmItems, url, idmFormat))}
+                      disabled={!idmExport}
                     >
                       <FileDown className="h-4 w-4" />
-                      .txt
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => downloadText(buildIdmEf2(idmItems), exportName(idmItems, url, "ef2"))}
-                    >
-                      <FileDown className="h-4 w-4" />
-                      .ef2 file
+                      Download .{idmFormat}
                     </Button>
                   </div>
                 </CardHeader>
 
                 <CardContent className="grid gap-3">
                   <p className="text-xs text-muted-foreground">
-                    Copy the URLs, then use IDM → Tasks → Add Batch Download From Clipboard. Or export .ef2 and use File
-                    → Import → From IDM export file. Page URLs may require IDM browser integration.
+                    .txt is the default and works with IDM → Tasks → Add Batch Download From
+                    Clipboard. .ef2 exports IDM entries with referer and cookie metadata when
+                    available.
                   </p>
 
                   {idmHasFileKeeper && (
-                    <p className="text-xs text-amber-500">
-                      IDM exports do not run the FileKeeper resolver. Use Auto/wget for original FileKeeper page links,
-                      or provide fresh signed tunnel URLs for IDM.
-                    </p>
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        FileKeeper pages are excluded from the ready URL list. Export the helper
+                        below and run <code>py filekeeper-idm.py</code> in its folder on your
+                        Windows PC (Python 3 required). It resolves selected FileKeeper links in
+                        batches, retaining the countdown and session cookies, without downloading
+                        the files. IDM imports the resulting URLs through its clipboard batch
+                        dialog.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            downloadText(
+                              buildFileKeeperIdmScript(idmItems, idmFormat),
+                              "filekeeper-idm.py",
+                            )
+                          }
+                        >
+                          <FileDown className="h-4 w-4" />
+                          Download script
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || cloudflareFileKeeperItems.length === 0}
+                          onClick={() =>
+                            resolveFileKeeperMutation.mutate(cloudflareFileKeeperItems)
+                          }
+                        >
+                          <CloudDownload className="h-4 w-4" />
+                          Run in browser
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Run in browser resolves selected pages in batches of up to 3 and downloads
+                        the selected export format. For larger selections, use the downloaded script
+                        in batches.
+                      </p>
+                      {cloudflareProgress && (
+                        <div className="grid gap-2" aria-live="polite">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Cloudflare resolution progress</span>
+                            <span>
+                              {cloudflareProgress.done} / {cloudflareProgress.total}
+                            </span>
+                          </div>
+                          <Progress
+                            value={(cloudflareProgress.done / cloudflareProgress.total) * 100}
+                            aria-label={`Resolved ${cloudflareProgress.done} of ${cloudflareProgress.total} FileKeeper links`}
+                          />
+                        </div>
+                      )}
+                      <p className="text-xs text-amber-500">
+                        Signed URLs expire quickly. Start IDM immediately after importing the URL
+                        list. Browser verification may still be required for some files.
+                      </p>
+                    </div>
                   )}
 
                   <Textarea

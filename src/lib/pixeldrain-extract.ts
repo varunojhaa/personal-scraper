@@ -1,4 +1,4 @@
-export type HostKey = "pixeldrain" | "fileditch" | "fuckingfast" | "datanodes" | "filekeeper";
+export type HostKey = "pixeldrain" | "fileditch" | "datanodes" | "filekeeper";
 
 export type PixeldrainItem = {
   id: string;
@@ -13,6 +13,8 @@ export type PixeldrainItem = {
   tool: "wget" | "idm";
   /** Optional/selective content; installation requirements vary by file. */
   optional?: boolean;
+  /** Session cookie captured while resolving a FileKeeper link. */
+  cookie?: string;
 };
 
 export type ScrapeResult = {
@@ -26,13 +28,14 @@ export type ScrapeResult = {
 export const HOST_LABELS: Record<HostKey, string> = {
   pixeldrain: "Pixeldrain",
   fileditch: "FileDitch",
-  fuckingfast: "FuckingFast",
   datanodes: "DataNodes",
   filekeeper: "FileKeeper",
 };
 
 export const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+  "AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Chrome/124.0 Safari/537.36";
 
 export const PROTECTED_HOSTS = [
   "filecrypt.cc",
@@ -54,7 +57,8 @@ type Rule = {
   tool: "wget" | "idm";
 };
 
-const COMMON_WGET = "-c --tries=5 --timeout=30 --read-timeout=60 --waitretry=5 --no-http-keep-alive";
+const COMMON_WGET =
+  "-c --tries=5 --timeout=30 --read-timeout=60 " + "--waitretry=5 --no-http-keep-alive";
 
 const RULES: Rule[] = [
   {
@@ -66,7 +70,7 @@ const RULES: Rule[] = [
     tool: "wget",
   },
   {
-    re: /pixeldrain\.com\/l\/([A-Za-z0-9]{4,12})(?![A-Za-z0-9])/gi,
+    re: /pixeldrain\.com\/(?:l|api\/list)\/([A-Za-z0-9]{4,12})(?![A-Za-z0-9])/gi,
     host: "pixeldrain",
     kind: "list",
     page: (id) => `https://pixeldrain.com/l/${id}`,
@@ -82,14 +86,6 @@ const RULES: Rule[] = [
     tool: "wget",
   },
   {
-    re: /fuckingfast\.(?:co|net)\/([A-Za-z0-9]{4,40}(?:#[^\s"'<>]{0,200})?)/gi,
-    host: "fuckingfast",
-    kind: "file",
-    page: (id) => `https://fuckingfast.co/${id}`,
-    direct: (id) => `https://fuckingfast.co/${id}`,
-    tool: "idm",
-  },
-  {
     re: /datanodes\.to\/([A-Za-z0-9]{4,40}(?:\/[^\s"'<>]{0,200})?)/gi,
     host: "datanodes",
     kind: "file",
@@ -98,7 +94,7 @@ const RULES: Rule[] = [
     tool: "idm",
   },
   {
-    // Signed FileKeeper download links can be much longer than 300 chars.
+    // Signed download URLs may be much longer than 300 characters.
     re: /(https:\/\/(?:[a-z0-9-]+\.)*dlproxy\.uk\/download\/[^\s"'<>\\]+)/gi,
     host: "filekeeper",
     kind: "file",
@@ -130,29 +126,25 @@ function decodeComponent(value: string): string {
 
 /** Keep host-provided filenames inside the current download directory. */
 function safeFilename(value: string): string {
-  return (
-    value
-      .replace(/\\/g, "/")
-      .split("/")
-      .pop()!
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u001f\u007f]/g, "")
-      .replace(/^\.+$/, "")
-      .trim()
-  );
+  const basename = value.replace(/\\/g, "/").split("/").pop() ?? "";
+
+  const cleaned = Array.from(basename)
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    })
+    .join("")
+    .trim();
+
+  return /^\.+$/.test(cleaned) ? "" : cleaned;
 }
 
 /**
- * Bare DataNodes/FileKeeper file codes are not filenames.
- * Signed tunnel URL tokens are not filenames either.
+ * Bare DataNodes/FileKeeper codes and signed tunnel tokens
+ * should not be used as filenames.
  */
 function nameFromId(host: HostKey, id: string): string {
   if (host === "pixeldrain") return "";
-
-  if (host === "fuckingfast") {
-    const index = id.indexOf("#");
-    return index >= 0 ? safeFilename(decodeComponent(id.slice(index + 1))) : "";
-  }
 
   if (host === "filekeeper" && /^https?:\/\//i.test(id)) {
     return "";
@@ -165,19 +157,32 @@ function nameFromId(host: HostKey, id: string): string {
     return "";
   }
 
-  return safeFilename(decodeComponent(segments.at(-1) ?? ""));
+  return safeFilename(decodeComponent(segments[segments.length - 1] ?? ""));
 }
 
 export function isOptionalName(name: string): boolean {
   return (
-    /\bfg-(optional|selective|choose|online|multi|bonus|redist)\b/i.test(name) || /\b(optional|selective)\b/i.test(name)
+    /\bfg-(optional|selective|choose|online|multi|bonus|redist)\b/i.test(name) ||
+    /\b(optional|selective)\b/i.test(name)
   );
 }
 
-export function extract(html: string, foundOn: string, into: Map<string, PixeldrainItem>) {
+export function extract(html: string, foundOn: string, into: Map<string, PixeldrainItem>): void {
+  // Also recognize URLs copied from JSON-escaped page text.
+  const text = html.replace(/\\\//g, "/");
+
   for (const rule of RULES) {
-    for (const match of html.matchAll(rule.re)) {
-      const id = decodeUrlText(match[1] ?? "").replace(/[.,;)\]]+$/, "");
+    for (const match of text.matchAll(rule.re)) {
+      // Do not interpret lookalike hostnames (e.g. notpixeldrain.com) as supported hosts.
+      const preceding = text[(match.index ?? 0) - 1];
+      if (preceding && /[a-z0-9_-]/i.test(preceding)) continue;
+      let id = decodeUrlText(match[1] ?? "");
+
+      // Preserve signed tunnel URLs exactly, including trailing punctuation.
+      if (!(rule.host === "filekeeper" && /^https:\/\//i.test(id))) {
+        id = id.replace(/[.,;)\]]+$/, "");
+      }
+
       if (!id) continue;
 
       const key = `${rule.host}:${rule.kind}:${id.split("#")[0]}`;
@@ -189,6 +194,7 @@ export function extract(html: string, foundOn: string, into: Map<string, Pixeldr
           existing.filename = name;
           existing.optional = isOptionalName(name);
         }
+
         continue;
       }
 
@@ -207,16 +213,22 @@ export function extract(html: string, foundOn: string, into: Map<string, Pixeldr
   }
 }
 
-export function collectLinks(html: string, base: string) {
+export function collectLinks(html: string, base: string): string[] {
   const out = new Set<string>();
+  const text = html.replace(/\\\//g, "/");
 
-  function add(raw: string) {
+  function add(raw: string): void {
     const value = decodeUrlText(raw.trim());
+
     if (!value || value.startsWith("#")) return;
 
     try {
-      const url = new URL(value, base);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return;
+      const url = /^https?:\/\//i.test(value) ? new URL(value) : new URL(value, base);
+
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return;
+      }
+
       url.hash = "";
       out.add(url.toString());
     } catch {
@@ -226,12 +238,11 @@ export function collectLinks(html: string, base: string) {
 
   const attributes = /(?:href|data-href|data-url|content)\s*=\s*["']([^"']+)["']/gi;
 
-  for (const match of html.matchAll(attributes)) {
+  for (const match of text.matchAll(attributes)) {
     add(match[1] ?? "");
   }
 
-  // No 300-character limit: FileKeeper signed URLs are often much longer.
-  for (const match of html.matchAll(/https?:\/\/[^\s"'<>\\)]+/gi)) {
+  for (const match of text.matchAll(/https?:\/\/[^\s"'<>\\)]+/gi)) {
     add((match[0] ?? "").replace(/[.,;]+$/, ""));
   }
 
@@ -242,16 +253,17 @@ function matchesHost(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
-export function isProtected(url: string) {
+export function isProtected(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
+
     return PROTECTED_HOSTS.some((domain) => matchesHost(hostname, domain));
   } catch {
     return false;
   }
 }
 
-export function isFileHostUrl(url: string) {
+export function isFileHostUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
 
@@ -260,6 +272,7 @@ export function isFileHostUrl(url: string) {
     }
 
     const hostname = parsed.hostname.toLowerCase();
+
     const domains = [
       "pixeldrain.com",
       "fileditch.st",
@@ -268,6 +281,7 @@ export function isFileHostUrl(url: string) {
       "fileditchfiles.st",
       "fileditchfiles.me",
       "fileditchfiles.com",
+      // Unsupported hosts remain here so scans/pasted URLs never fetch their pages.
       "fuckingfast.co",
       "fuckingfast.net",
       "datanodes.to",
@@ -283,23 +297,23 @@ export function isFileHostUrl(url: string) {
   }
 }
 
-function shellQuote(value: string) {
+function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-export function sanitizeClearance(raw: string) {
+export function sanitizeClearance(raw: string): string {
   const value = /cf_clearance\s*[=:]\s*([^\s;,"']+)/i.exec(raw)?.[1] ?? raw;
 
-  return (
-    value
-      .trim()
-      // eslint-disable-next-line no-control-regex
-      .replace(/[^\u0021-\u007e]/g, "")
-      .replace(/[;,"']/g, "")
-  );
+  return Array.from(value.trim())
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+
+      return code >= 33 && code <= 126 && !`;,"'`.includes(character);
+    })
+    .join("");
 }
 
-function fileDitchCommand(item: PixeldrainItem, common: string, rawClearance = "") {
+function fileDitchCommand(item: PixeldrainItem, common: string, rawClearance = ""): string {
   const clearance = sanitizeClearance(rawClearance);
   const filename = safeFilename(item.filename ?? "") || "fileditch-download";
 
@@ -309,7 +323,11 @@ ua=${JSON.stringify(UA)}
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
 
 def headers():
-    h={"User-Agent":ua,"Accept":"text/html,application/xhtml+xml,*/*","Accept-Language":"en-US,en;q=0.9"}
+    h={
+        "User-Agent":ua,
+        "Accept":"text/html,application/xhtml+xml,*/*",
+        "Accept-Language":"en-US,en;q=0.9",
+    }
     if clearance:
         h["Cookie"]="cf_clearance="+clearance
     return h
@@ -321,68 +339,113 @@ def request(target,data=None):
             return response.geturl(),response.read().decode("utf-8","replace")
     except urllib.error.HTTPError as err:
         body=err.read(262144).decode("utf-8","replace")
-        if err.code in (403,503) and re.search(r"Just a moment|cf-chl|challenges\.cloudflare\.com",body,re.I):
-            raise SystemExit("FileDitch requires browser verification. Open the file page in your browser and use a fresh cf_clearance cookie; it may also be tied to your browser and IP.")
-        raise SystemExit("FileDitch returned HTTP %s for %s" % (err.code,target))
+        if err.code in (403,503) and re.search(
+            r"Just a moment|cf-chl|challenges\.cloudflare\.com",
+            body,re.I,
+        ):
+            raise SystemExit(
+                "FileDitch requires browser verification. Open the file "
+                "page in your browser and use a fresh cf_clearance cookie; "
+                "it may also be tied to your browser and IP."
+            )
+        raise SystemExit(
+            "FileDitch returned HTTP %s for %s" % (err.code,target)
+        )
     except urllib.error.URLError as err:
         raise SystemExit("FileDitch request failed: "+str(err.reason))
 
 def direct(page):
-    match=re.search(r"var\s+u\s*=\s*(\[[\s\S]*?\])\.join\([\"']{2}\)",page,re.I)
+    match=re.search(
+        r"var\s+u\s*=\s*(\[[\s\S]*?\])\.join\([\"']{2}\)",
+        page,re.I,
+    )
     return "".join(json.loads(match.group(1))) if match else ""
 
 final,page=request(url)
 media=direct(page)
 
 if not media:
-    fields={H.unescape(k):H.unescape(v) for k,v in re.findall(r"<input\b[^>]*\bname=[\"']([^\"']+)[\"'][^>]*\bvalue=[\"']([^\"']*)[\"'][^>]*>",page,re.I)}
+    fields={
+        H.unescape(k):H.unescape(v)
+        for k,v in re.findall(
+            r"<input\b[^>]*\bname=[\"']([^\"']+)[\"'][^>]*\bvalue=[\"']([^\"']*)[\"'][^>]*>",
+            page,re.I,
+        )
+    }
+
     challenge=fields.get("pow_challenge","")
+
     try:
         difficulty=int(fields.get("pow_diff","0"))
     except ValueError:
         raise SystemExit("FileDitch returned an invalid verification difficulty")
+
     if not challenge or not 1<=difficulty<=24:
-        raise SystemExit("FileDitch verification challenge was not found or its difficulty is unsupported")
+        raise SystemExit(
+            "FileDitch verification challenge was not found "
+            "or its difficulty is unsupported"
+        )
 
     nonce=0
     while True:
-        digest=hashlib.sha256((challenge+":"+str(nonce)).encode()).digest()
+        digest=hashlib.sha256(
+            (challenge+":"+str(nonce)).encode()
+        ).digest()
+
         if int.from_bytes(digest,"big") >> (256-difficulty) == 0:
             break
+
         nonce+=1
 
     fields["pow_nonce"]=str(nonce)
-    final,page=request(final,urllib.parse.urlencode(fields).encode())
+    final,page=request(
+        final,
+        urllib.parse.urlencode(fields).encode(),
+    )
     media=direct(page)
 
 if not media.startswith("https://"):
     raise SystemExit("FileDitch did not return a download URL")
 
-cmd=["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+url]
+cmd=[
+    "wget",
+    *shlex.split(${JSON.stringify(common)}),
+    "-O",name,
+    "--user-agent="+ua,
+    "--referer="+url,
+]
+
 if clearance:
     cmd.append("--header=Cookie: cf_clearance="+clearance)
+
 raise SystemExit(subprocess.call(cmd+["--",media]))
 `;
 
-  return `python3 -c ${shellQuote(python)} ${shellQuote(
-    item.pageUrl,
-  )} ${shellQuote(filename)} ${shellQuote(clearance)}`;
+  return (
+    `python3 -c ${shellQuote(python)} ` +
+    `${shellQuote(item.pageUrl)} ` +
+    `${shellQuote(filename)} ` +
+    `${shellQuote(clearance)}`
+  );
 }
 
 /**
- * Resolve FileKeeper using a cookie jar and the actual free-download form.
+ * Resolve FileKeeper using cookies and recognized free-download forms.
  *
- * Important:
- * - Include the clicked free-download submit button.
- * - Do not submit premium buttons or unchecked controls.
- * - Catch tunnel redirects before urllib downloads the file.
- * - Pass applicable cookies to wget using a temporary Netscape cookie file.
- * - Never use the opaque file code / signed token as a filename.
+ * Handles HTTP redirects, same-origin refreshes, and the countdown widget.
+ * Does not execute arbitrary JavaScript or solve CAPTCHAs.
+ * Unrecognized responses are saved to private debug HTML files.
  */
-function fileKeeperCommand(item: PixeldrainItem, common: string) {
+function fileKeeperCommand(item: PixeldrainItem, common: string): string {
   const filename = safeFilename(item.filename ?? "");
+  return (
+    `python3 -c ${shellQuote(fileKeeperPython(common))} ` +
+    `${shellQuote(item.pageUrl)} ${shellQuote(filename)}`
+  );
+}
 
-  const python = String.raw`import html as H
+function fileKeeperPython(common: string, batch = false): string {
+  return String.raw`import html as H
 import http.cookiejar
 import os
 import re
@@ -396,37 +459,125 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 
-url,name=sys.argv[1],sys.argv[2]
+${batch ? 'url,name="",""' : "url,name=sys.argv[1],sys.argv[2]"}
 ua=${JSON.stringify(UA)}
 MAX_HTML=4*1024*1024
+MAX_STEPS=10
 
 def is_download(target):
-    p=urllib.parse.urlsplit(target)
-    host=(p.hostname or "").lower()
-    return (
-        p.scheme=="https"
-        and (host=="dlproxy.uk" or host.endswith(".dlproxy.uk"))
-        and p.path.startswith("/download/")
-    )
+    try:
+        p=urllib.parse.urlsplit(target)
+        host=(p.hostname or "").lower()
+        return (
+            p.scheme=="https"
+            and not p.username
+            and not p.password
+            and (host=="dlproxy.uk" or host.endswith(".dlproxy.uk"))
+            and p.path.startswith("/download/")
+        )
+    except ValueError:
+        return False
+
+def is_filekeeper_page(target):
+    try:
+        p=urllib.parse.urlsplit(target)
+        host=(p.hostname or "").lower()
+        return (
+            p.scheme in ("http","https")
+            and not p.username
+            and not p.password
+            and (host=="filekeeper.net" or host.endswith(".filekeeper.net"))
+        )
+    except ValueError:
+        return False
 
 def normalize(value,base):
     value=H.unescape(value).replace("\\/","/").strip()
     return urllib.parse.urljoin(base,value)
 
+def same_origin(first,second):
+    try:
+        a=urllib.parse.urlsplit(first)
+        b=urllib.parse.urlsplit(second)
+
+        def origin(p):
+            default=443 if p.scheme=="https" else 80
+            port=p.port
+            return (
+                p.scheme.lower(),
+                (p.hostname or "").lower(),
+                default if port is None else port,
+            )
+
+        return (
+            a.scheme in ("http","https")
+            and b.scheme in ("http","https")
+            and not b.username
+            and not b.password
+            and origin(a)==origin(b)
+        )
+    except ValueError:
+        return False
+
+def refresh_parts(content):
+    match=re.search(r"url\s*=\s*(.+)",content,re.I)
+    if not match:
+        return None
+
+    target=match.group(1).strip().strip("\"'")
+    if not target:
+        return None
+
+    delay_match=re.match(r"\s*(\d+(?:\.\d+)?)",content)
+    delay=float(delay_match.group(1)) if delay_match else 0
+    return delay,target
+
+def wait_for(delay):
+    if delay>600:
+        raise SystemExit(
+            "FileKeeper requests a wait longer than 10 minutes. "
+            "Please use the browser."
+        )
+
+    if delay>0:
+        print(
+            "FileKeeper: waiting %s seconds..." % (delay+1),
+            flush=True,
+        )
+        time.sleep(delay+1)
+
 class DownloadRedirect(Exception):
-    def __init__(self,url):
-        self.url=url
+    def __init__(self,target):
+        super().__init__(target)
+        self.url=target
 
 class RedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
         target=normalize(newurl,req.full_url)
+
         if is_download(target):
-            # Cookie processing takes place before the redirect handler.
             fp.close()
             raise DownloadRedirect(target)
-        return super().redirect_request(req,fp,code,msg,headers,newurl)
+
+        old=urllib.parse.urlsplit(req.full_url)
+        new=urllib.parse.urlsplit(target)
+
+        if (
+            not is_filekeeper_page(target)
+            or (old.scheme=="https" and new.scheme!="https")
+        ):
+            fp.close()
+            raise SystemExit(
+                "FileKeeper redirected to an unsupported or insecure "
+                "destination. Use the browser to continue."
+            )
+
+        return super().redirect_request(
+            req,fp,code,msg,headers,newurl
+        )
 
 jar=http.cookiejar.MozillaCookieJar()
+
 opener=urllib.request.build_opener(
     urllib.request.HTTPCookieProcessor(jar),
     RedirectHandler(),
@@ -434,76 +585,100 @@ opener=urllib.request.build_opener(
 
 def get(target,data=None,referer=None):
     if is_download(target) and data is None:
-        return target,"",target
+        return target,"",target,""
+
+    if not is_filekeeper_page(target):
+        raise SystemExit("Unsupported FileKeeper request destination.")
 
     headers={
         "User-Agent":ua,
         "Accept":"text/html,application/xhtml+xml,*/*",
         "Accept-Language":"en-US,en;q=0.9",
     }
+
     if referer:
         headers["Referer"]=referer
+
     if data is not None:
         headers["Content-Type"]="application/x-www-form-urlencoded"
 
-    request=urllib.request.Request(target,data=data,headers=headers)
+    request=urllib.request.Request(
+        target,data=data,headers=headers
+    )
 
     try:
         with opener.open(request,timeout=60) as response:
             final=response.geturl()
             content_type=response.headers.get_content_type()
             disposition=response.headers.get("Content-Disposition","")
+            refresh=response.headers.get("Refresh","")
+
+            binary=(
+                content_type.startswith("application/")
+                and content_type not in (
+                    "application/xhtml+xml",
+                    "application/json",
+                    "application/xml",
+                    "application/javascript",
+                )
+            ) or content_type.startswith(("audio/","video/","image/"))
 
             if (
                 is_download(final)
                 or "attachment" in disposition.lower()
-                or content_type not in (
-                    "text/html",
-                    "application/xhtml+xml",
-                    "text/plain",
-                )
+                or binary
             ):
-                # Never read a binary file into memory as HTML.
-                # A non-tunnel attachment endpoint may need a browser if
-                # it cannot be requested again with GET.
+                # Do not load binary files into memory as HTML.
                 if data is not None:
                     raise SystemExit(
-                        "FileKeeper returned the file directly to a POST request "
-                        "instead of a reusable download URL. Use the browser "
-                        "for this download."
+                        "FileKeeper returned a file directly to a POST "
+                        "request instead of a reusable download URL. "
+                        "Use the browser for this download."
                     )
-                return final,"",final
+                return final,"",final,""
 
             body=response.read(MAX_HTML+1)
+
             if len(body)>MAX_HTML:
-                raise SystemExit("FileKeeper returned an unexpectedly large HTML page")
+                raise SystemExit(
+                    "FileKeeper returned an unexpectedly large page."
+                )
+
             encoding=response.headers.get_content_charset() or "utf-8"
             try:
                 page=body.decode(encoding,"replace")
             except LookupError:
                 page=body.decode("utf-8","replace")
-            return final,page,""
+
+            return final,page,"",refresh
 
     except DownloadRedirect as result:
-        return target,"",result.url
+        return target,"",result.url,""
 
     except urllib.error.HTTPError as error:
         body=error.read(262144).decode("utf-8","replace")
-        if re.search(r"Just a moment|cf-chl|challenges\.cloudflare\.com",body,re.I):
+
+        if re.search(
+            r"Just a moment|cf-chl|challenges\.cloudflare\.com",
+            body,re.I,
+        ):
             raise SystemExit(
-                "FileKeeper requires browser verification. Open the original "
-                "file page in your browser, click Free Download, and paste "
+                "FileKeeper requires browser verification. Open the "
+                "original file page, click Free Download, and paste "
                 "the freshly generated tunnel URL."
             )
+
         raise SystemExit(
             "FileKeeper returned HTTP %s while requesting %s. "
-            "This can be a missing file, expired session, or rejected download "
-            "request; it does not by itself prove the file was deleted."
+            "This may be an unavailable file, expired session, or "
+            "rejected request; it does not prove the file was deleted."
             % (error.code,target)
         )
 
     except urllib.error.URLError as error:
-        raise SystemExit("FileKeeper request failed: "+str(error.reason))
+        raise SystemExit(
+            "FileKeeper request failed: "+str(error.reason)
+        )
 
 class PageParser(HTMLParser):
     def __init__(self):
@@ -513,24 +688,31 @@ class PageParser(HTMLParser):
         self.button=None
         self.links=[]
         self.refreshes=[]
+        self.countdowns=[]
 
     def handle_starttag(self,tag,attrs):
-        a=dict(attrs)
         tag=tag.lower()
+        a=dict(attrs)
+
+        if tag=="div" and a.get("id")=="download-countdown":
+            self.countdowns.append(a)
 
         for key in ("href","data-href","data-url"):
             if a.get(key):
                 self.links.append(a[key])
 
-        if tag=="meta" and a.get("http-equiv","").lower()=="refresh":
-            match=re.search(r"url\s*=\s*(.+)",a.get("content",""),re.I)
-            if match:
-                self.refreshes.append(match.group(1).strip().strip("\"'"))
+        if (
+            tag=="meta"
+            and (a.get("http-equiv") or "").lower()=="refresh"
+        ):
+            refresh=refresh_parts(a.get("content") or "")
+            if refresh:
+                self.refreshes.append(refresh)
 
         if tag=="form":
             self.current={
-                "action":a.get("action",""),
-                "method":a.get("method","get").lower(),
+                "action":a.get("action") or "",
+                "method":(a.get("method") or "get").lower(),
                 "fields":[],
                 "buttons":[],
             }
@@ -544,9 +726,10 @@ class PageParser(HTMLParser):
         if tag=="input":
             if "disabled" in a:
                 return
-            kind=a.get("type","text").lower()
-            field=a.get("name","")
-            value=a.get("value","")
+
+            kind=(a.get("type") or "text").lower()
+            field=a.get("name") or ""
+            value=a.get("value") or ""
 
             if kind in ("submit","image"):
                 self.current["buttons"].append({
@@ -556,21 +739,28 @@ class PageParser(HTMLParser):
                     "attrs":a,
                     "image":kind=="image",
                 })
+
             elif (
                 field
                 and kind not in ("button","reset","file")
-                and (kind not in ("checkbox","radio") or "checked" in a)
+                and (
+                    kind not in ("checkbox","radio")
+                    or "checked" in a
+                )
             ):
+                default="on" if kind in ("checkbox","radio") else ""
                 self.current["fields"].append((
-                    field,
-                    a.get("value","on" if kind in ("checkbox","radio") else ""),
+                    field,a.get("value",default) or ""
                 ))
 
         elif tag=="button":
-            if "disabled" not in a and a.get("type","submit").lower()=="submit":
+            if (
+                "disabled" not in a
+                and (a.get("type") or "submit").lower()=="submit"
+            ):
                 self.button={
-                    "name":a.get("name",""),
-                    "value":a.get("value",""),
+                    "name":a.get("name") or "",
+                    "value":a.get("value") or "",
                     "text":"",
                     "attrs":a,
                     "image":False,
@@ -582,36 +772,54 @@ class PageParser(HTMLParser):
             self.button["text"]+=data
 
     def handle_endtag(self,tag):
-        if tag.lower()=="button":
+        tag=tag.lower()
+        if tag=="button":
             self.button=None
-        elif tag.lower()=="form":
+        elif tag=="form":
             self.button=None
             self.current=None
 
 def direct(page,base,parsed):
-    for candidate in parsed.links+parsed.refreshes:
+    for candidate in parsed.links:
         target=normalize(candidate,base)
         if is_download(target):
             return target
 
-    # Handles ordinary and JSON-escaped URLs, including long signed tokens.
     text=H.unescape(page).replace("\\/","/")
     pattern=r"https://(?:[a-z0-9-]+\.)*dlproxy\.uk/download/[^\s\"'<>\\]+"
+
     for match in re.finditer(pattern,text,re.I):
         target=match.group(0)
         if is_download(target):
             return target
+
     return ""
+
+def next_refresh(parsed,base):
+    for delay,candidate in parsed.refreshes:
+        target=normalize(candidate,base)
+
+        if is_download(target):
+            return delay,target
+
+        if same_origin(base,target):
+            target=urllib.parse.urldefrag(target)[0]
+            current=urllib.parse.urldefrag(base)[0]
+
+            if target!=current:
+                return delay,target
+
+    return None
 
 def button_score(button):
     label=" ".join((
         button["name"],
         button["value"],
         button["text"],
-        button["attrs"].get("id",""),
+        button["attrs"].get("id") or "",
     )).lower()
 
-    if "premium" in label or "method_premium" in label:
+    if "premium" in label:
         return -100
     if "method_free" in label:
         return 100
@@ -648,7 +856,7 @@ def choose_form(parsed):
         if button is not None:
             score+=button_score(button)
         elif form["buttons"]:
-            # A form with only premium buttons is not a free-download form.
+            # Do not submit forms that only offer premium buttons.
             continue
 
         if score>0:
@@ -656,8 +864,54 @@ def choose_form(parsed):
 
     if not candidates:
         return None
+
     _,form,button=max(candidates,key=lambda row:row[0])
     return form,button
+
+def countdown_form(parsed):
+    # FileKeeper's countdown widget creates this form only on click.
+    # Reproduce that known flow from HTML attributes; never execute scripts.
+    if not parsed.countdowns:
+        return None
+    if len(parsed.countdowns)!=1:
+        raise ValueError("ambiguous download countdown widgets")
+
+    attrs=parsed.countdowns[0]
+    for key,label in (
+        ("data-has-password","a file password"),
+        ("data-has-captcha","a CAPTCHA"),
+    ):
+        if attrs.get(key)=="true":
+            raise ValueError("download requires "+label+"; use the browser")
+        if attrs.get(key)!="false":
+            raise ValueError("missing or invalid countdown protection flags")
+
+    code=attrs.get("data-code") or ""
+    if not re.fullmatch(r"[A-Za-z0-9]{4,40}",code):
+        raise ValueError("missing or invalid countdown file code")
+    if "data-rand" not in attrs or attrs["data-rand"] is None:
+        raise ValueError("missing countdown rand field")
+
+    raw_delay=attrs.get("data-countdown") or ""
+    if not re.fullmatch(r"[+-]?\d+",raw_delay.strip()):
+        raise ValueError("missing or invalid download countdown")
+    # Match the widget's parseInt(...) || 5, including its zero fallback.
+    delay=int(raw_delay) or 5
+
+    return ({
+        "action":"",
+        "method":"post",
+        "fields":[
+            ("op","download2"),
+            ("id",code),
+            ("rand",attrs["data-rand"]),
+            ("referer",attrs.get("data-referer") or ""),
+            ("method_free",attrs.get("data-method") or "Free download"),
+            ("down_direct","1"),
+        ],
+        "buttons":[],
+        "delay":delay,
+    },None)
 
 def countdown(page):
     patterns=(
@@ -666,16 +920,12 @@ def countdown(page):
         r"(?:countdown|wait)\s*\(\s*(\d{1,4})",
         r"wait\s+(\d{1,4})\s+seconds",
     )
+
     for pattern in patterns:
         match=re.search(pattern,page,re.I)
         if match:
-            delay=int(match.group(1))
-            if delay>600:
-                raise SystemExit(
-                    "FileKeeper requests a wait longer than 10 minutes. "
-                    "Please use the browser."
-                )
-            return delay
+            return int(match.group(1))
+
     return 0
 
 def form_request(final,form,button):
@@ -685,8 +935,11 @@ def form_request(final,form,button):
 
     if button is not None:
         attrs=button["attrs"]
-        action=attrs.get("formaction",action)
-        method=attrs.get("formmethod",method).lower()
+
+        if "formaction" in attrs:
+            action=attrs["formaction"] or ""
+        if attrs.get("formmethod"):
+            method=attrs["formmethod"].lower()
 
         if button["name"]:
             if button["image"]:
@@ -698,15 +951,9 @@ def form_request(final,form,button):
                 fields.append((button["name"],button["value"]))
 
     target=normalize(action,final) if action else final
+    target=urllib.parse.urldefrag(target)[0]
 
-    # Do not send hidden session fields to an unrelated form destination.
-    origin=urllib.parse.urlsplit(final)
-    destination=urllib.parse.urlsplit(target)
-    if (
-        destination.scheme not in ("http","https")
-        or destination.netloc.lower()!=origin.netloc.lower()
-        or (origin.scheme=="https" and destination.scheme!="https")
-    ):
+    if not same_origin(final,target):
         raise SystemExit(
             "FileKeeper returned a cross-origin or insecure form action. "
             "Use the browser to continue safely."
@@ -719,70 +966,150 @@ def form_request(final,form,button):
 
     if method=="get":
         parts=urllib.parse.urlsplit(target)
-        # HTML GET form submission replaces the action query.
         return urllib.parse.urlunsplit((
-            parts.scheme,parts.netloc,parts.path,encoded,"",
+            parts.scheme,parts.netloc,parts.path,encoded,""
         )),None
 
     raise SystemExit("Unsupported FileKeeper form method: "+method)
 
-def main():
+def unresolved_page(final,page,parsed,reason):
+    # Private, unique file: HTML may contain session tokens.
+    try:
+        fd,path=tempfile.mkstemp(
+            prefix="filekeeper-debug-",
+            suffix=".html",
+            dir=os.getcwd(),
+        )
+    except OSError:
+        fd,path=tempfile.mkstemp(
+            prefix="filekeeper-debug-",
+            suffix=".html",
+        )
+
+    with os.fdopen(fd,"w",encoding="utf-8") as output:
+        output.write(page)
+
+    print("FileKeeper: "+reason+" at "+final,file=sys.stderr)
+    print(
+        "Detected %s form(s), %s link(s), and %s refresh redirect(s)."
+        % (
+            len(parsed.forms),
+            len(parsed.links),
+            len(parsed.refreshes),
+        ),
+        file=sys.stderr,
+    )
+    print("Response HTML saved to: "+path,file=sys.stderr)
+    print(
+        "The debug HTML may contain private tokens or signed links. "
+        "Redact those before sharing it.",
+        file=sys.stderr,
+    )
+
+    raise SystemExit(
+        "Inspect the saved HTML for the required form, redirect, "
+        "JavaScript request, or browser verification. Alternatively, "
+        "open the original file page and paste a fresh tunnel URL."
+    )
+
+def main(resolve_only=False):
+    if not is_download(url) and not is_filekeeper_page(url):
+        raise SystemExit(
+            "Expected a FileKeeper page or dlproxy.uk download URL."
+        )
+
     referer="https://filekeeper.net/"
-    link=""
 
     if is_download(url):
         link=url
         final=referer
         page=""
+        refresh_header=""
     else:
-        final,page,link=get(url,referer=referer)
-        referer=final
+        final,page,link,refresh_header=get(url,referer=referer)
 
-    for step in range(6):
+    for step in range(MAX_STEPS+1):
         if link:
             break
 
         parsed=PageParser()
         parsed.feed(page)
+        parsed.close()
+
+        if refresh_header:
+            refresh=refresh_parts(refresh_header)
+            if refresh:
+                parsed.refreshes.insert(0,refresh)
+
+        if re.search(
+            r"Just a moment|cf-chl|challenges\.cloudflare\.com",
+            page,re.I,
+        ):
+            raise SystemExit(
+                "FileKeeper requires a browser check. Open the page "
+                "in your browser and paste the fresh tunnel URL."
+            )
+
+        # Follow intermediate refresh pages, not only tunnel refreshes.
+        refresh=next_refresh(parsed,final)
+
+        if refresh:
+            if step==MAX_STEPS:
+                unresolved_page(
+                    final,page,parsed,"redirect/form step limit reached"
+                )
+
+            delay,target=refresh
+            wait_for(delay)
+            referer=final
+            final,page,link,refresh_header=get(target,referer=referer)
+            continue
+
         link=direct(page,final,parsed)
         if link:
             referer=final
             break
 
-        if re.search(r"Just a moment|cf-chl|challenges\.cloudflare\.com",page,re.I):
-            raise SystemExit(
-                "FileKeeper requires a browser check. Open the page in your "
-                "browser and paste the fresh tunnel download link."
+        if step==MAX_STEPS:
+            unresolved_page(
+                final,page,parsed,"redirect/form step limit reached"
             )
 
         selected=choose_form(parsed)
         if selected is None:
-            raise SystemExit(
-                "No usable FileKeeper free-download form or tunnel link "
-                "was found at "+final+". The page may need JavaScript, "
-                "a captcha, or the file may be unavailable. Open the page "
-                "in your browser to check."
+            try:
+                selected=countdown_form(parsed)
+            except ValueError as error:
+                unresolved_page(final,page,parsed,str(error))
+
+        if selected is None:
+            unresolved_page(
+                final,page,parsed,
+                "no recognized free-download form or tunnel link",
             )
 
-        delay=countdown(page)
-        if delay:
-            print("FileKeeper: waiting %s seconds..." % (delay+1),flush=True)
-            time.sleep(delay+1)
-
         form,button=selected
+        wait_for(form.get("delay",countdown(page)))
         target,data=form_request(final,form,button)
         referer=final
-        final,page,link=get(target,data=data,referer=referer)
 
-    if not link:
-        raise SystemExit(
-            "FileKeeper did not provide a download URL after 6 steps. "
-            "Open the file page, click Free Download, and paste the new "
-            "tunnel URL instead."
+        print(
+            "FileKeeper: submitting download step %s..." % (step+1),
+            flush=True,
         )
 
-    # Netscape cookie format is understood by wget. Cookie domain/path rules
-    # prevent FileKeeper-only cookies from being sent to unrelated hosts.
+        final,page,link,refresh_header=get(
+            target,data=data,referer=referer
+        )
+
+    if not link:
+        raise SystemExit("FileKeeper did not provide a download URL.")
+
+    if resolve_only:
+        request=urllib.request.Request(link)
+        jar.add_cookie_header(request)
+        return link,referer,request.get_header("Cookie","")
+
     with tempfile.TemporaryDirectory(prefix="filekeeper-") as directory:
         cookies=os.path.join(directory,"cookies.txt")
         jar.save(cookies,ignore_discard=True,ignore_expires=False)
@@ -799,7 +1126,6 @@ def main():
         if name:
             cmd.extend(["-O",name])
         else:
-            # Let the server provide the real filename.
             cmd.append("--content-disposition")
 
         print("FileKeeper: starting download...",flush=True)
@@ -807,29 +1133,124 @@ def main():
 
         if result:
             print(
-                "FileKeeper download failed. Signed tunnel URLs may expire "
-                "or be single-use. Rebuild using the original FileKeeper "
-                "page URL to request a fresh link.",
+                "FileKeeper download failed. Signed tunnel URLs may "
+                "expire or be single-use. Generate a new command using "
+                "the original FileKeeper page to request a fresh link.",
                 file=sys.stderr,
             )
+
         return result
 
-try:
+${
+  batch
+    ? ""
+    : String.raw`try:
     raise SystemExit(main())
 except KeyboardInterrupt:
     raise SystemExit(130)
-`;
+except OSError as error:
+    raise SystemExit("FileKeeper resolver failed: "+str(error))
+`
+}`;
+}
 
-  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)}`;
+/** Resolve on the IDM user's computer, retaining its IP and session context. */
+export function buildFileKeeperIdmScript(
+  items: PixeldrainItem[],
+  format: "txt" | "ef2" = "txt",
+): string {
+  const files = items
+    .filter((item) => item.host === "filekeeper")
+    .map((item) => ({ url: item.pageUrl, name: safeFilename(item.filename ?? "") }));
+  if (!files.length) return "";
+
+  return (
+    fileKeeperPython("", true) +
+    String.raw`
+import argparse
+import datetime
+import json
+import traceback
+
+FILES=json.loads(${JSON.stringify(JSON.stringify(files))})
+
+def single_line(value):
+    return value.replace("\r","").replace("\n","")
+
+def export_idm():
+    global url,name
+    parser=argparse.ArgumentParser(
+        description="Resolve FileKeeper locally, then import the URL list into IDM immediately."
+    )
+    parser.add_argument("--start",type=int,default=1,help="First selected file (1-based)")
+    parser.add_argument("--count",type=int,default=10,help="Batch size (default: 10)")
+    default_output="filekeeper-idm-%s.${format}" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    export_ef2=${format === "ef2" ? "True" : "False"}
+    parser.add_argument("--output",default=default_output,help="IDM ${format} export; never overwritten")
+    args=parser.parse_args()
+    if args.start<1 or args.start>len(FILES) or args.count<1:
+        parser.error("start must be within the selected files and count must be positive")
+    batch=FILES[args.start-1:args.start-1+args.count]
+    # Signed URLs and cookies are private. Refuse to overwrite earlier exports.
+    fd=os.open(args.output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    succeeded=0
+    with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as output:
+        for index,item in enumerate(batch,args.start):
+            url,name=item["url"],item["name"]
+            jar.clear()
+            print("Resolving file %s/%s: %s" % (index,len(FILES),name or "FileKeeper"),flush=True)
+            try:
+                link,referer,cookie=main(resolve_only=True)
+                record="<"+single_line(link)+">\nreferer: "+single_line(referer)+"\nUser-Agent: "+ua+"\n"
+                if cookie:
+                    record+="Cookie: "+single_line(cookie)+"\n"
+                if export_ef2:
+                    record += ">\n"
+                    output.write(record)
+                else:
+                    output.write(single_line(link)+"\n")
+                output.flush()
+                succeeded+=1
+            except (SystemExit,OSError,ValueError) as error:
+                print("File %s failed: %s" % (index,error),file=sys.stderr)
+    print("Exported %s/%s IDM URLs to %s. In IDM use Tasks -> Add batch download from clipboard." % (succeeded,len(batch),args.output))
+    print("Keep this file private: it may contain signed URLs and session cookies.")
+    next_start=args.start+len(batch)
+    if next_start<=len(FILES):
+        print("Next batch: --start %s --count %s --output filekeeper-idm-%s.${format}" % (next_start,args.count,next_start))
+    return 0 if succeeded==len(batch) else 1
+
+if __name__=="__main__":
+    exit_code=0
+    try:
+        exit_code=export_idm()
+    except KeyboardInterrupt:
+        print("Cancelled.",file=sys.stderr)
+        exit_code=130
+    except Exception as error:
+        print("IDM export failed: "+str(error),file=sys.stderr)
+        traceback.print_exc()
+        exit_code=1
+    if sys.platform=="win32" and sys.stdin.isatty():
+        input("\nPress Enter to close...")
+    raise SystemExit(exit_code)
+`
+  );
 }
 
 /** Shared command generation for both export formats. */
 function itemCommand(item: PixeldrainItem, clearance = ""): { command: string; filename: string } {
   const filename = safeFilename(item.filename ?? "");
-  const normalized = {
+
+  const normalized: PixeldrainItem = {
     ...item,
-    filename: filename || undefined,
   };
+
+  if (filename) {
+    normalized.filename = filename;
+  } else {
+    delete normalized.filename;
+  }
 
   if (item.host === "fileditch") {
     return {
@@ -848,20 +1269,22 @@ function itemCommand(item: PixeldrainItem, clearance = ""): { command: string; f
   const output = filename ? ` -O ${shellQuote(filename)}` : " --content-disposition";
 
   const headers =
-    item.host === "pixeldrain" ? "" : ` --user-agent=${shellQuote(UA)} --referer=${shellQuote(item.pageUrl)}`;
+    item.host === "pixeldrain"
+      ? ""
+      : ` --user-agent=${shellQuote(UA)}` + ` --referer=${shellQuote(item.pageUrl)}`;
 
   return {
     filename,
-    command: `wget ${COMMON_WGET}${output}${headers} -- ${shellQuote(item.directUrl)}`,
+    command: `wget ${COMMON_WGET}${output}${headers} -- ` + shellQuote(item.directUrl),
   };
 }
 
 function completedTest(filename: string): string {
-  // A stale marker must not cause a deleted output file to be skipped.
-  return `[ -f ${shellQuote(`${filename}.done`)} ] && [ -f ${shellQuote(filename)} ]`;
+  // A stale marker must not skip a deleted output file.
+  return `[ -f ${shellQuote(`${filename}.done`)} ] && ` + `[ -f ${shellQuote(filename)} ]`;
 }
 
-export function buildWget(items: PixeldrainItem[], clearance = "") {
+export function buildWget(items: PixeldrainItem[], clearance = ""): string {
   if (!items.length) return "";
 
   const segments = items.map((item) => {
@@ -870,28 +1293,30 @@ export function buildWget(items: PixeldrainItem[], clearance = "") {
     if (!filename) return command;
 
     const done = shellQuote(`${filename}.done`);
-    return `if ${completedTest(filename)}; then :; else ${command} && touch -- ${done}; fi`;
+
+    return `if ${completedTest(filename)}; then :; ` + `else ${command} && touch -- ${done}; fi`;
   });
 
   const script = segments.join("; ");
 
-  // Requires bash, setsid, nohup, wget, and python3 for resolver hosts.
   return (
     `setsid nohup bash -c ${shellQuote(script)}` +
     ` > wget.log 2>&1 < /dev/null & ` +
     `pid=$!; disown "$pid" 2>/dev/null || true; ` +
-    `echo "started in background (PID $pid) — watch progress with: tail -f wget.log"\n`
+    `echo "started in background (PID $pid) — ` +
+    `watch progress with: tail -f wget.log"\n`
   );
 }
 
-export function buildShellScript(items: PixeldrainItem[], clearance = "") {
+export function buildShellScript(items: PixeldrainItem[], clearance = ""): string {
   if (!items.length) return "";
 
   const lines = items.map((item) => {
     const { command, filename } = itemCommand(item, clearance);
     const label = filename || item.pageUrl;
 
-    const failure = `printf '%s\\n' ${shellQuote(`FAILED: ${label}`)} >&2\n` + `    failed=$((failed + 1))`;
+    const failure =
+      `printf '%s\\n' ${shellQuote(`FAILED: ${label}`)} >&2\n` + `    failed=$((failed + 1))`;
 
     if (!filename) {
       return [
@@ -939,7 +1364,10 @@ export function buildShellScript(items: PixeldrainItem[], clearance = "") {
 export function validateManualInput(raw: string): string | null {
   const text = raw.trim();
 
-  if (!text) return "Paste a link first — the box is empty.";
+  if (!text) {
+    return "Paste a link first — the box is empty.";
+  }
+
   if (text.length < 8) {
     return "That's too short to be a link. Paste the full URL.";
   }
@@ -952,7 +1380,7 @@ export function validateManualInput(raw: string): string | null {
       return "Add http:// or https:// in front of that address.";
     }
 
-    return "No URL found. Paste a full link starting with https://, or the page HTML.";
+    return "No URL found. Paste a full link starting with https://, " + "or the page HTML.";
   }
 
   if (looksLikeHtml) return null;
@@ -962,21 +1390,28 @@ export function validateManualInput(raw: string): string | null {
 
   if (protectedHit) {
     let host = protectedHit;
+
     try {
       host = new URL(protectedHit).hostname;
     } catch {
       // Keep the original value.
     }
 
-    return `${host} is captcha-protected — open it, solve the captcha, then paste the revealed supported-host links or upload its .dlc container.`;
+    return (
+      `${host} is captcha-protected — open it, solve the captcha, ` +
+      "then paste the revealed supported-host links or upload " +
+      "its .dlc container."
+    );
   }
 
-  return `Unsupported link. This scraper only understands ${Object.values(HOST_LABELS).join(
-    ", ",
-  )} links (or raw page HTML that contains them).`;
+  return (
+    "Unsupported link. This scraper only understands " +
+    Object.values(HOST_LABELS).join(", ") +
+    " links (or raw page HTML that contains them)."
+  );
 }
 
-/** Derive a readable export filename from the selected files. */
+/** Derive a readable export filename from selected files. */
 export function exportName(items: PixeldrainItem[], fallback: string, ext: string): string {
   const names = items
     .map((item) => item.filename || item.id || "")
@@ -996,6 +1431,7 @@ export function exportName(items: PixeldrainItem[], fallback: string, ext: strin
 
     try {
       const source = items[0]?.foundOn || fallback || "";
+
       if (source) {
         host = new URL(source).hostname.replace(/^www\./, "");
       }
@@ -1040,20 +1476,47 @@ function commonPrefix(names: string[]): string {
   return first.slice(0, Math.max(index, 1)).join("-") || names[0] || "";
 }
 
-/**
- * Plain URL list.
- * FileKeeper page URLs still require browser/IDM host support;
- * these synchronous exports do not resolve signed links.
- */
-export function buildIdmList(items: PixeldrainItem[]) {
-  return items.map((item) => item.directUrl).join("\n");
+/** A FileKeeper URL is IDM-ready only after its countdown has produced a signed URL. */
+function isResolvedFileKeeperUrl(item: PixeldrainItem): boolean {
+  if (item.host !== "filekeeper") return true;
+
+  try {
+    const url = new URL(item.directUrl);
+    const host = url.hostname.toLowerCase();
+    return (
+      (host === "dlproxy.uk" || host.endsWith(".dlproxy.uk")) &&
+      url.pathname.startsWith("/download/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Plain URL list for IDM; unresolved FileKeeper pages are intentionally omitted. */
+export function buildIdmList(items: PixeldrainItem[]): string {
+  return items
+    .filter(isResolvedFileKeeperUrl)
+    .map((item) => item.directUrl)
+    .join("\n");
+}
+
+export function isIdmReady(item: PixeldrainItem): boolean {
+  return isResolvedFileKeeperUrl(item);
 }
 
 /** IDM .ef2 export format. */
-export function buildIdmEf2(items: PixeldrainItem[]) {
-  const singleLine = (value: string) => value.replace(/[\r\n]/g, "");
+export function buildIdmEf2(items: PixeldrainItem[]): string {
+  const singleLine = (value: string): string => value.replace(/[\r\n]/g, "");
 
   return items
-    .map((item) => `<\n${singleLine(item.directUrl)}\nreferer: ${singleLine(item.pageUrl)}\nUser-Agent: ${UA}\n>`)
+    .filter(isResolvedFileKeeperUrl)
+    .map(
+      (item) =>
+        `<${singleLine(item.directUrl)}>\n` +
+        `referer: ${singleLine(item.pageUrl)}\n` +
+        `User-Agent: ${UA}\n` +
+        (item.cookie ? `Cookie: ${singleLine(item.cookie)}\n` : "") +
+        `\n>`,
+    )
     .join("\n");
 }

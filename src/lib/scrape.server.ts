@@ -4,19 +4,58 @@ import {
   extract,
   isProtected,
   isFileHostUrl,
+  isOptionalName,
   type PixeldrainItem,
   type ScrapeResult,
-} from "./pixeldrain-extract";
+} from "./pixeldrain-extract.ts";
+import { fetchText, validateFetchUrl } from "./fetch.server.ts";
+
+function isFileCryptUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return (
+      host === "filecrypt.cc" ||
+      host === "filecrypt.co" ||
+      host.endsWith(".filecrypt.cc") ||
+      host.endsWith(".filecrypt.co")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isFitgirlSource(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "fitgirl-repacks.site" || host.endsWith(".fitgirl-repacks.site");
+  } catch {
+    return false;
+  }
+}
 
 async function fetchPage(url: string) {
-  const res = await fetch(url, {
-    redirect: "follow",
-    headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" },
-  });
-  const type = res.headers.get("content-type") ?? "";
-  const html =
-    type.includes("html") || type.includes("text") || type === "" ? await res.text() : "";
-  return { ok: res.ok, status: res.status, finalUrl: res.url || url, html };
+  const res = await fetchText(
+    url,
+    {
+      headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" },
+    },
+    true,
+  );
+  return { ...res, html: res.text };
+}
+
+function scanPage(
+  html: string,
+  url: string,
+  found: Map<string, PixeldrainItem>,
+  protectedPages: Set<string>,
+) {
+  extract(html, url, found);
+  for (const link of collectLinks(html, url)) {
+    if (isProtected(link) && !(isFitgirlSource(url) && isFileCryptUrl(link))) {
+      protectedPages.add(link);
+    }
+  }
 }
 
 /**
@@ -24,30 +63,34 @@ async function fetchPage(url: string) {
  * under the right name instead of the API path.
  */
 async function namePixeldrainItems(found: Map<string, PixeldrainItem>) {
+  const queue = [...found.values()].filter((i) => i.host === "pixeldrain" && !i.filename);
   await Promise.all(
-    [...found.values()]
-      .filter((i) => i.host === "pixeldrain" && !i.filename)
-      .map(async (item) => {
+    Array.from({ length: Math.min(4, queue.length) }, async () => {
+      let item: PixeldrainItem | undefined;
+      while ((item = queue.shift())) {
         const url =
           item.kind === "file"
             ? `https://pixeldrain.com/api/file/${item.id}/info`
             : `https://pixeldrain.com/api/list/${item.id}`;
         try {
-          const res = await fetch(url, {
+          const res = await fetchText(url, {
             headers: { "User-Agent": UA, Accept: "application/json" },
           });
-          if (!res.ok) return;
-          const json = (await res.json()) as { name?: string; title?: string };
-          const name = (json.name ?? json.title ?? "").trim();
-          if (!name) return;
+          if (!res.ok) continue;
+          const json = JSON.parse(res.text) as { name?: unknown; title?: unknown };
+          const rawName = json.name ?? json.title;
+          const name = typeof rawName === "string" ? rawName.trim() : "";
+          if (!name) continue;
           item.filename =
             item.kind === "list"
               ? `${name.replace(/[/\\]/g, "_")}.zip`
               : name.replace(/[/\\]/g, "_");
+          item.optional = isOptionalName(item.filename);
         } catch {
           /* keep the default filename behaviour */
         }
-      }),
+      }
+    }),
   );
 }
 
@@ -66,6 +109,11 @@ export async function scrapeUrl(
   deep: boolean,
   maxPages: number,
 ): Promise<ScrapeResult> {
+  validateFetchUrl(url);
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 40) {
+    throw new Error("maxPages must be an integer between 1 and 40.");
+  }
+  if (isFileHostUrl(url) || isProtected(url)) return resolvePasted(url, url);
   const found = new Map<string, PixeldrainItem>();
   const pagesScanned: string[] = [];
   const protectedPages = new Set<string>();
@@ -73,7 +121,8 @@ export async function scrapeUrl(
   const first = await fetchPage(url);
   if (!first.ok) throw new Error(`Failed to fetch page (HTTP ${first.status})`);
   pagesScanned.push(first.finalUrl);
-  extract(first.html, first.finalUrl, found);
+  extract(first.finalUrl, first.finalUrl, found);
+  scanPage(first.html, first.finalUrl, found, protectedPages);
   if (isProtected(first.finalUrl)) protectedPages.add(first.finalUrl);
 
   if (deep) {
@@ -84,13 +133,16 @@ export async function scrapeUrl(
       return true;
     });
 
+    const attempted = new Set([url, first.finalUrl]);
+    let attempts = 1;
     for (const link of candidates) {
-      if (pagesScanned.length >= maxPages) break;
+      if (attempts >= maxPages) break;
+      if (attempted.has(link)) continue;
       if (isProtected(link)) {
-        protectedPages.add(link);
+        if (!(isFitgirlSource(url) && isFileCryptUrl(link))) protectedPages.add(link);
         continue;
       }
-      const sameSite = link.startsWith(origin);
+      const sameSite = new URL(link).origin === origin;
       let shortish = false;
       try {
         shortish = new URL(link).pathname.length <= 40;
@@ -99,6 +151,8 @@ export async function scrapeUrl(
       }
       if (!sameSite && !shortish) continue;
 
+      attempted.add(link);
+      attempts++;
       try {
         const page = await fetchPage(link);
         if (!page.ok) continue;
@@ -107,7 +161,8 @@ export async function scrapeUrl(
           protectedPages.add(page.finalUrl);
           continue;
         }
-        extract(page.html, page.finalUrl, found);
+        extract(page.finalUrl, page.finalUrl, found);
+        scanPage(page.html, page.finalUrl, found, protectedPages);
       } catch {
         /* skip unreachable link */
       }
@@ -115,6 +170,17 @@ export async function scrapeUrl(
   }
 
   await resolveItemMetadata(found);
+
+  if (isFitgirlSource(url)) {
+    for (const [key, item] of found.entries()) {
+      if (item.host !== "filekeeper") {
+        found.delete(key);
+      }
+    }
+    for (const link of [...protectedPages]) {
+      if (isFileCryptUrl(link)) protectedPages.delete(link);
+    }
+  }
 
   return {
     sourceUrl: first.finalUrl,
@@ -140,19 +206,27 @@ export async function resolveDlc(
   const pagesScanned: string[] = [];
   const protectedPages = new Set<string>();
 
-  const res = await fetch("https://dcrypt.it/decrypt/paste", {
+  const res = await fetchText("https://dcrypt.it/decrypt/paste", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA },
     body: new URLSearchParams({ content: base64Content }).toString(),
   });
   if (!res.ok) throw new Error(`DLC decrypt service failed (HTTP ${res.status})`);
 
-  const json = (await res.json()) as {
+  const json = JSON.parse(res.text) as {
     success?: { links?: string[] };
     form_errors?: Record<string, string[] | string>;
     error?: string;
   };
-  const links = json.success?.links ?? [];
+  const links = Array.isArray(json.success?.links)
+    ? [
+        ...new Set(
+          json.success.links.filter(
+            (link) => typeof link === "string" && /^https?:\/\//i.test(link),
+          ),
+        ),
+      ]
+    : [];
   if (!links.length) {
     const formError = Object.values(json.form_errors ?? {})
       .flat()
@@ -166,19 +240,24 @@ export async function resolveDlc(
 
   extract(links.join("\n"), filename, found);
 
+  let attempts = 0;
   for (const link of links) {
     if (isFileHostUrl(link)) continue;
     if (isProtected(link)) {
-      protectedPages.add(link);
+      if (!(isFitgirlSource(filename) && isFileCryptUrl(link))) protectedPages.add(link);
       continue;
     }
-    if (!follow || pagesScanned.length >= 20) continue;
+    if (!follow || attempts >= 20) continue;
+    attempts++;
     try {
       const page = await fetchPage(link);
       if (!page.ok) continue;
       pagesScanned.push(page.finalUrl);
       if (isProtected(page.finalUrl)) protectedPages.add(page.finalUrl);
-      else extract(page.html, page.finalUrl, found);
+      else {
+        extract(page.finalUrl, page.finalUrl, found);
+        scanPage(page.html, page.finalUrl, found, protectedPages);
+      }
     } catch {
       /* skip unreachable link */
     }
@@ -206,27 +285,36 @@ export async function resolvePasted(input: string, label: string): Promise<Scrap
   const protectedPages = new Set<string>();
 
   // Always scan the pasted text itself first.
-  extract(trimmed, label || "pasted content", found);
+  scanPage(trimmed, label || "pasted content", found, protectedPages);
 
   const looksLikeSingleUrl = /^https?:\/\/\S+$/i.test(trimmed);
   if (looksLikeSingleUrl && !isFileHostUrl(trimmed)) {
     if (isProtected(trimmed)) {
       protectedPages.add(trimmed);
     } else {
-      try {
-        const page = await fetchPage(trimmed);
-        if (page.ok) {
-          pagesScanned.push(page.finalUrl);
-          if (isProtected(page.finalUrl)) protectedPages.add(page.finalUrl);
-          else extract(page.html, page.finalUrl, found);
-        }
-      } catch {
-        /* ignore fetch failure, pasted text scan still applies */
+      const page = await fetchPage(trimmed);
+      if (!page.ok) throw new Error(`Failed to fetch page (HTTP ${page.status})`);
+      pagesScanned.push(page.finalUrl);
+      if (isProtected(page.finalUrl)) protectedPages.add(page.finalUrl);
+      else {
+        extract(page.finalUrl, page.finalUrl, found);
+        scanPage(page.html, page.finalUrl, found, protectedPages);
       }
     }
   }
 
   await resolveItemMetadata(found);
+
+  if (isFitgirlSource(label) || isFitgirlSource(input)) {
+    for (const [key, item] of found.entries()) {
+      if (item.host !== "filekeeper") {
+        found.delete(key);
+      }
+    }
+    for (const link of [...protectedPages]) {
+      if (isFileCryptUrl(link)) protectedPages.delete(link);
+    }
+  }
 
   return {
     sourceUrl: label || (looksLikeSingleUrl ? trimmed : "pasted content"),

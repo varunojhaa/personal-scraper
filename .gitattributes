@@ -1,0 +1,6 @@
+# Keep text files consistent with Prettier on every platform.
+* text=auto eol=lf
+
+# Windows command scripts require native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf

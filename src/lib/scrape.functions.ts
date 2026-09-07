@@ -5,7 +5,7 @@ import type { ScrapeResult } from "./pixeldrain-extract";
 export type { PixeldrainItem, ScrapeResult } from "./pixeldrain-extract";
 
 export const scrapePixeldrain = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
+  .validator((data: unknown) =>
     z
       .object({
         url: z.string().url(),
@@ -20,7 +20,7 @@ export const scrapePixeldrain = createServerFn({ method: "POST" })
   });
 
 export const resolvePastedContent = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
+  .validator((data: unknown) =>
     z
       .object({
         content: z.string().min(3).max(2_000_000),
@@ -33,8 +33,24 @@ export const resolvePastedContent = createServerFn({ method: "POST" })
     return resolvePasted(data.content, data.label);
   });
 
+export const resolveFileKeeperIdmLinks = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z
+      .object({
+        items: z
+          .array(z.object({ pageUrl: z.string().url(), filename: z.string().max(300).optional() }))
+          .min(1)
+          .max(3),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const { resolveFileKeeperIdm } = await import("./filekeeper-cloudflare.server");
+    return resolveFileKeeperIdm(data.items);
+  });
+
 export const resolveDlcContainer = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
+  .validator((data: unknown) =>
     z
       .object({
         base64: z.string().min(16).max(8_000_000),

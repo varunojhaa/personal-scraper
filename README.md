@@ -1,6 +1,6 @@
 # Personal Scraper
 
-A personal link scraper that extracts Pixeldrain (from other sites) and FuckingFast mirrors (from fitgirl-repacks.site), then generates ready-to-paste `wget` commands or IDM download lists. Not a universal scraper — it only supports the currently detected sites.
+A personal link scraper that extracts Pixeldrain, FileDitch, FileKeeper, and DataNodes links, then generates `wget` commands or IDM URL lists. FileKeeper pages use a local Python resolver for downloads or IDM clipboard batch import. Not a universal scraper — it only supports these hosts.
 
 ## License
 

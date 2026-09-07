@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Reduced from the reported /download response. File identifiers redacted;
+     unrelated styling, navigation, ads, and private tokens omitted. -->
+<html>
+  <head>
+    <title>Download example mkv</title>
+  </head>
+  <body>
+    <span id="dl-filename">example.mkv</span>
+    <h2>Preparing your download</h2>
+    <div
+      id="download-countdown"
+      data-countdown="5"
+      data-code="example12345"
+      data-referer="https://filekeeper.net/"
+      data-rand=""
+      data-method=""
+      data-has-password="false"
+      data-has-captcha="false"
+    >
+      <p>Initialising secure session…</p>
+    </div>
+    <script>
+      // Relevant request construction from startDownload(). The actual page
+      // exposes its button after a countdown; there is no static form.
+      function startDownload() {
+        const countdownElement = document.getElementById("download-countdown");
+        const code = countdownElement.getAttribute("data-code");
+        const referer = countdownElement.getAttribute("data-referer") || "";
+        const rand = countdownElement.getAttribute("data-rand");
+        const method = countdownElement.getAttribute("data-method") || "Free download";
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = "";
+        form.style.display = "none";
+        const fields = {
+          op: "download2",
+          id: code,
+          rand: rand,
+          referer: referer,
+          method_free: method,
+          down_direct: "1",
+        };
+        for (const [key, value] of Object.entries(fields)) {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = key;
+          input.value = value;
+          form.appendChild(input);
+        }
+        document.body.appendChild(form);
+        form.submit();
+      }
+    </script>
+  </body>
+</html>
