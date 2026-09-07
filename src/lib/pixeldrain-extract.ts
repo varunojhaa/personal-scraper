@@ -282,6 +282,73 @@ raise SystemExit(subprocess.call(cmd+[media]))`;
   return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(filename)} ${shellQuote(clearance)}`;
 }
 
+/**
+ * FileKeeper hides the real file behind its download page: the file code sets a
+ * cookie, the page then hands out a signed one-shot link on a tunnel host
+ * (tunnelN.dlproxy.uk/download/…?sig=…). This little resolver walks that flow
+ * locally — cookie jar, hidden form fields, countdown wait — and then hands the
+ * signed URL to wget, so the saved file is the real file and not an HTML page.
+ */
+function fileKeeperCommand(item: PixeldrainItem, common: string) {
+  const python = `import html as H,re,shlex,subprocess,sys,time,urllib.error,urllib.parse,urllib.request
+url,name=sys.argv[1],sys.argv[2]
+ua=${JSON.stringify(UA)}
+jar=urllib.request.HTTPCookieProcessor()
+opener=urllib.request.build_opener(jar)
+def get(target,data=None,referer=None):
+    h={"User-Agent":ua,"Accept":"text/html,application/xhtml+xml,*/*","Accept-Language":"en-US,en;q=0.9"}
+    if referer: h["Referer"]=referer
+    if data is not None: h["Content-Type"]="application/x-www-form-urlencoded"
+    req=urllib.request.Request(target,data=data,headers=h)
+    try:
+        with opener.open(req,timeout=60) as r:
+            return r.geturl(),r.read().decode("utf-8","replace")
+    except urllib.error.HTTPError as e:
+        body=e.read().decode("utf-8","replace")
+        if e.code==404 or re.search(r"File Not Found",body,re.I):
+            raise SystemExit("FileKeeper says this file no longer exists: "+url)
+        raise SystemExit("FileKeeper returned HTTP %s for %s" % (e.code,target))
+def direct(page):
+    for rx in (r"https://[a-z0-9.\\-]*dlproxy\\.[a-z.]+/[^\\s\\"'<>\\\\]+",
+               r"https://[a-z0-9.\\-]+/download/[A-Za-z0-9_\\-]{20,}[^\\s\\"'<>\\\\]*"):
+        m=re.search(rx,page,re.I)
+        if m: return H.unescape(m.group(0))
+    return ""
+def forms(page):
+    out=[]
+    for f in re.finditer(r"<form\\b([^>]*)>([\\s\\S]*?)</form>",page,re.I):
+        action=re.search(r"action=[\\"']([^\\"']*)[\\"']",f.group(1),re.I)
+        fields={}
+        for i in re.finditer(r"<input\\b[^>]*>",f.group(2),re.I):
+            n=re.search(r"name=[\\"']([^\\"']+)[\\"']",i.group(0),re.I)
+            v=re.search(r"value=[\\"']([^\\"']*)[\\"']",i.group(0),re.I)
+            if n: fields[H.unescape(n.group(1))]=H.unescape(v.group(1)) if v else ""
+        if fields: out.append((H.unescape(action.group(1)) if action else "",fields))
+    return out
+final,page=get(url,referer="https://filekeeper.net/")
+link=direct(page)
+seen=0
+while not link and seen<3:
+    seen+=1
+    fs=[f for f in forms(page) if any(k.lower() in ("op","file_code","id","rand","referer","method_free","down_script") for k in f[1])]
+    if not fs: break
+    action,fields=fs[-1]
+    w=re.search(r"(?:countdown|wait)[^0-9]{0,20}([0-9]{1,3})",page,re.I)
+    if w: time.sleep(min(int(w.group(1)),90)+1)
+    target=urllib.parse.urljoin(final,action) if action else final
+    final,page=get(target,urllib.parse.urlencode(fields).encode(),referer=final)
+    link=direct(page)
+if not link:
+    raise SystemExit("FileKeeper did not hand out a download link for "+url+" (the file may be expired, or the page now needs a browser).")
+if not name:
+    name=urllib.parse.unquote(urllib.parse.urlparse(link).path.rsplit("/",1)[-1]) or "filekeeper-download"
+cmd=["wget",*shlex.split(${JSON.stringify(common)}),"-O",name,"--user-agent="+ua,"--referer="+final]
+raise SystemExit(subprocess.call(cmd+[link]))`;
+  return `python3 -c ${shellQuote(python)} ${shellQuote(item.pageUrl)} ${shellQuote(item.filename ?? "")}`;
+}
+
+
+
 
 export function buildWget(items: PixeldrainItem[], clearance = "") {
   if (!items.length) return "";
