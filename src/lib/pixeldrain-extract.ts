@@ -105,7 +105,7 @@ const RULES: Rule[] = [
     kind: "file",
     page: (id) => `https://filekeeper.net/${id}`,
     direct: (id) => `https://filekeeper.net/${id}`,
-    tool: "idm",
+    tool: "wget",
   },
 ];
 
