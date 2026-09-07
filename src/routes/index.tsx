@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   Link2,
@@ -16,7 +16,6 @@ import {
   FileDown,
   Github,
   Upload,
-
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,12 +27,11 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Toaster } from "@/components/ui/sonner";
+
+import { scrapePixeldrain, resolvePastedContent, resolveDlcContainer } from "@/lib/scrape.functions";
+
 import {
-  scrapePixeldrain,
-  resolvePastedContent,
-  resolveDlcContainer,
-} from "@/lib/scrape.functions";
-import {
+  extract,
   buildWget,
   buildShellScript,
   buildIdmList,
@@ -47,19 +45,147 @@ import {
   type ScrapeResult,
 } from "@/lib/pixeldrain-extract";
 
-
 type ToolMode = "auto" | "wget" | "idm";
+type DlcHost = "pixeldrain" | "fileditch" | "filekeeper";
 
-const keyOf = (i: PixeldrainItem) => `${i.host}:${i.kind}:${i.id}`;
+type PendingPage = {
+  url: string;
+  status: "open-me" | "resolved";
+};
+
+type PasteVariables = {
+  content: string;
+  label: string;
+  replace: boolean;
+};
+
+type DlcVariables = {
+  file: File;
+  host: DlcHost;
+};
+
+type StatusMessage = {
+  text: string;
+  kind: "working" | "success" | "error" | "info";
+};
+
+const DLC_HOSTS: DlcHost[] = ["pixeldrain", "fileditch", "filekeeper"];
+
+const TOOL_MODES: ToolMode[] = ["auto", "wget", "idm"];
+
+/** Ignore filename fragments when identifying an existing file. */
+const keyOf = (item: PixeldrainItem) => `${item.host}:${item.kind}:${item.id.split("#")[0]}`;
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function normalizeItem(item: PixeldrainItem): PixeldrainItem {
+  if (item.host !== "filekeeper") return item;
+
+  // Older server responses may incorrectly use the file code or signed
+  // URL token as the filename. Let wget use Content-Disposition instead.
+  let filename = item.filename;
+
+  try {
+    const parsed = new URL(item.pageUrl);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const hostname = parsed.hostname.toLowerCase();
+
+    const isFileKeeper = hostname === "filekeeper.net" || hostname.endsWith(".filekeeper.net");
+
+    const isTunnel = hostname === "dlproxy.uk" || hostname.endsWith(".dlproxy.uk");
+
+    const last = parts[parts.length - 1] ?? "";
+
+    if (
+      filename &&
+      ((isFileKeeper && parts.length === 1 && filename === last) ||
+        (isTunnel && (filename === last || filename === item.id)))
+    ) {
+      filename = undefined;
+    }
+  } catch {
+    // Keep available metadata if the URL cannot be parsed.
+  }
+
+  return {
+    ...item,
+    filename,
+    tool: "wget",
+  };
+}
+
+function mergeItems(previous: PixeldrainItem[], incoming: PixeldrainItem[]): PixeldrainItem[] {
+  const map = new Map(
+    previous.map((item) => {
+      const normalized = normalizeItem(item);
+      return [keyOf(normalized), normalized] as const;
+    }),
+  );
+
+  for (const raw of incoming) {
+    const item = normalizeItem(raw);
+    const key = keyOf(item);
+    const existing = map.get(key);
+
+    map.set(key, {
+      ...existing,
+      ...item,
+      filename: item.filename || existing?.filename,
+      optional: item.optional ?? existing?.optional,
+    });
+  }
+
+  return [...map.values()];
+}
+
+function mergePending(previous: PendingPage[], urls: string[]): PendingPage[] {
+  const map = new Map(previous.map((page) => [page.url, page] as const));
+
+  for (const url of urls) {
+    if (!map.has(url)) {
+      map.set(url, { url, status: "open-me" });
+    }
+  }
+
+  return [...map.values()];
+}
+
+/**
+ * Do not fetch FileKeeper pages or signed tunnel URLs just to create
+ * downloader items. The generated Python/wget command resolves them
+ * locally when the user actually starts the download.
+ */
+function localFileKeeperResult(content: string, label: string): ScrapeResult | null {
+  const found = new Map<string, PixeldrainItem>();
+  extract(content, label, found);
+
+  const items = [...found.values()];
+
+  if (items.length === 0 || items.some((item) => item.host !== "filekeeper")) {
+    return null;
+  }
+
+  return {
+    sourceUrl: label,
+    items: items.map(normalizeItem),
+    pagesScanned: [],
+    protectedPages: [],
+    scrapedAt: new Date().toISOString(),
+  };
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Personal Scraper — wget / IDM download builder" },
+      {
+        title: "Personal Scraper — wget / IDM download builder",
+      },
       {
         name: "description",
         content:
-          "Personal Scraper — not a universal scraper. Collect download links by scrape, manual paste or .dlc container, then export a ready-to-run wget command or IDM batch list for the files you select.",
+          "Collect supported download links from pages, manual paste, or .dlc containers, then export wget commands or IDM download lists.",
       },
       {
         property: "og:title",
@@ -67,8 +193,7 @@ export const Route = createFileRoute("/")({
       },
       {
         property: "og:description",
-        content:
-          "Not a universal scraper. Collect links by scrape, manual paste or .dlc container, then export a wget command or IDM list for the files you select.",
+        content: "Collect supported download links and export wget commands or IDM lists for the files you select.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -77,422 +202,626 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type PendingPage = { url: string; status: "open-me" | "resolved" };
-
 function Index() {
   const [url, setUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [copiedIdm, setCopiedIdm] = useState(false);
+
   const [items, setItems] = useState<PixeldrainItem[]>([]);
   const [pending, setPending] = useState<PendingPage[]>([]);
-  const [scannedCount, setScannedCount] = useState(0);
+  const [scannedPages, setScannedPages] = useState<Set<string>>(() => new Set<string>());
+
   const [activePaste, setActivePaste] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState("");
+
   const [mode, setMode] = useState<ToolMode>("auto");
   const [includeOptional, setIncludeOptional] = useState(false);
-  /** Unselected item keys — everything is selected unless it's in here. */
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  /** Which host a decrypted .dlc auto-selects. */
-  const [dlcHost, setDlcHost] = useState<"pixeldrain" | "fileditch" | "filekeeper">("pixeldrain");
-  /** Live status line shown while a scrape / paste / container resolve runs. */
-  const [status, setStatus] = useState<string | null>(null);
-  /** Optional Cloudflare cf_clearance cookie so FileDitch commands get through. */
+
+  /** Everything is selected unless its key appears here. */
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set<string>());
+
+  const [dlcHost, setDlcHost] = useState<DlcHost>("pixeldrain");
+  const [status, setStatus] = useState<StatusMessage | null>(null);
   const [clearance, setClearance] = useState("");
 
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idmCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (idmCopyTimer.current) clearTimeout(idmCopyTimer.current);
+    };
+  }, []);
 
   const scrape = useServerFn(scrapePixeldrain);
   const resolvePaste = useServerFn(resolvePastedContent);
   const resolveDlc = useServerFn(resolveDlcContainer);
 
-  const merge = (result: ScrapeResult) => {
-    setItems((prev) => {
-      const map = new Map(prev.map((i) => [keyOf(i), i]));
-      for (const i of result.items) map.set(keyOf(i), i);
-      return [...map.values()];
+  async function resolveInput(content: string, label: string): Promise<ScrapeResult> {
+    const local = localFileKeeperResult(content, label);
+
+    if (local) return local;
+
+    return resolvePaste({
+      data: { content, label },
     });
-    setScannedCount((n) => n + result.pagesScanned.length);
-    if (result.protectedPages.length) {
-      setPending((prev) => {
-        const known = new Set(prev.map((p) => p.url));
-        const next = [...prev];
-        for (const u of result.protectedPages)
-          if (!known.has(u)) next.push({ url: u, status: "open-me" });
-        return next;
-      });
+  }
+
+  function applyResult(result: ScrapeResult, replace: boolean, selectedHost?: DlcHost) {
+    const incoming = result.items.map(normalizeItem);
+
+    setItems((previous) => mergeItems(replace ? [] : previous, incoming));
+
+    setScannedPages((previous) => {
+      const next = replace ? new Set<string>() : new Set(previous);
+
+      for (const page of result.pagesScanned) next.add(page);
+      return next;
+    });
+
+    setPending((previous) => mergePending(replace ? [] : previous, result.protectedPages));
+
+    if (replace) {
+      setExcluded(new Set(selectedHost ? incoming.filter((item) => item.host !== selectedHost).map(keyOf) : []));
+
+      setCopied(false);
+      setCopiedIdm(false);
     }
-    return result;
-  };
+  }
+
+  function reportError(error: unknown, fallback: string) {
+    const text = errorMessage(error, fallback);
+    setStatus({ kind: "error", text });
+    toast.error(text);
+  }
 
   const scrapeMutation = useMutation({
     mutationFn: (target: string) => scrape({ data: { url: target, deep: false } }),
-    onMutate: (target) => setStatus(`Fetching ${target} and scanning it for download links…`),
-    onError: (e: Error) => {
-      setStatus(null);
-      toast.error(e.message || "Scrape failed");
+
+    onMutate: (target) => {
+      setStatus({
+        kind: "working",
+        text: `Fetching ${target} and scanning for download links…`,
+      });
     },
-    onSuccess: (d) => {
-      merge(d);
-      setStatus(
-        `Done — scanned ${d.pagesScanned.length} page${d.pagesScanned.length === 1 ? "" : "s"}, found ${d.items.length} link${d.items.length === 1 ? "" : "s"}.`,
-      );
-      toast.success(
-        `${d.items.length} link${d.items.length === 1 ? "" : "s"} found${
-          d.protectedPages.length ? ` · ${d.protectedPages.length} page(s) need you` : ""
-        }`,
-      );
+
+    onError: (error) => {
+      reportError(error, "Scrape failed");
+    },
+
+    onSuccess: (result) => {
+      applyResult(result, false);
+
+      const text =
+        `Scanned ${result.pagesScanned.length} page(s), ` +
+        `found ${result.items.length} link(s).` +
+        (result.protectedPages.length ? ` ${result.protectedPages.length} page(s) need browser verification.` : "");
+
+      setStatus({
+        kind: result.items.length ? "success" : "info",
+        text,
+      });
+
+      if (result.items.length) toast.success(text);
+      else toast.info(text);
     },
   });
 
   const pasteMutation = useMutation({
-    mutationFn: (vars: { content: string; label: string }) => resolvePaste({ data: vars }),
-    onMutate: () => setStatus("Reading your input and resolving filenames…"),
-    onError: (e: Error) => {
-      setStatus(null);
-      toast.error(e.message || "Could not read pasted content");
+    mutationFn: (variables: PasteVariables) => resolveInput(variables.content, variables.label),
+
+    onMutate: () => {
+      setStatus({
+        kind: "working",
+        text: "Reading links and resolving available filenames…",
+      });
     },
-    onSuccess: (d, vars) => {
-      // A fresh manual paste replaces the previous session: clear the old file
-      // picker, selection and command before merging the new links.
-      setItems([]);
-      setPending([]);
-      setScannedCount(0);
-      setExcluded(new Set());
-      merge(d);
-      if (d.items.length === 0) {
-        setStatus("No supported download links were found in that input.");
-        toast.error("No download links in that paste");
+
+    onError: (error) => {
+      reportError(error, "Could not read pasted content");
+    },
+
+    onSuccess: (result, variables) => {
+      // An empty paste must not destroy a working session.
+      if (!result.items.length) {
+        if (result.protectedPages.length) {
+          applyResult(result, false);
+        }
+
+        setStatus({
+          kind: "info",
+          text: "No supported download links were found. Existing files were kept.",
+        });
+        toast.error("No supported download links in that input");
         return;
       }
-      setPending((prev) =>
-        prev.map((p) => (p.url === vars.label ? { ...p, status: "resolved" } : p)),
-      );
+
+      applyResult(result, variables.replace);
+
+      if (!variables.replace) {
+        setPending((previous) =>
+          previous.map((page) => (page.url === variables.label ? { ...page, status: "resolved" } : page)),
+        );
+      }
+
       setActivePaste(null);
       setPasteValue("");
-      setStatus(`Done — ${d.items.length} link${d.items.length === 1 ? "" : "s"} resolved.`);
-      toast.success(`Added ${d.items.length} link${d.items.length === 1 ? "" : "s"}`);
+
+      const fileKeeperOnly = result.items.every((item) => item.host === "filekeeper");
+
+      const text =
+        `Added ${result.items.length} link(s).` +
+        (fileKeeperOnly ? " FileKeeper download URLs will be resolved when the command runs." : "");
+
+      setStatus({ kind: "success", text });
+      toast.success(`Added ${result.items.length} link(s)`);
     },
   });
 
   const dlcMutation = useMutation({
-    mutationFn: async (file: File) => {
-      // .dlc files are already base64 text — send the raw contents, don't re-encode.
+    mutationFn: async ({ file, host }: DlcVariables) => {
       const base64 = (await file.text()).trim();
+
+      if (!base64) {
+        throw new Error("That container is empty.");
+      }
+
+      // Capture the chosen host in mutation variables so changing UI
+      // state cannot alter how the completed request is selected.
       return resolveDlc({
-        data: { base64, filename: file.name, follow: true, hostFilter: dlcHost },
+        data: {
+          base64,
+          filename: file.name,
+          // FileKeeper pages should not be fetched to create items.
+          // Its generated downloader handles the free-download flow.
+          follow: host !== "filekeeper",
+          hostFilter: host,
+        },
       });
     },
-    onMutate: (file) =>
-      setStatus(`Decrypting ${file.name} and resolving ${HOST_LABELS[dlcHost]} filenames…`),
-    onError: (e: Error) => {
-      setStatus(null);
-      toast.error(e.message || "Could not read that container");
-    },
-    onSuccess: (d) => {
-      // A fresh .dlc upload replaces the previous session: clear the old file
-      // picker, selection and command before merging the new container's links.
-      setItems([]);
-      setPending([]);
-      setScannedCount(0);
-      setExcluded(new Set());
-      merge(d);
-      // Only auto-select links from the chosen provider; every other host in
-      // the .dlc is deselected so the wget command targets just those files.
-      setExcluded((prevEx) => {
-        const next = new Set(prevEx);
-        for (const i of d.items) if (i.host !== dlcHost) next.add(keyOf(i));
-        return next;
+
+    onMutate: ({ file, host }) => {
+      setStatus({
+        kind: "working",
+        text: `Decrypting ${file.name} and collecting ${HOST_LABELS[host]} links…`,
       });
-      if (d.items.length === 0) {
-        setStatus("Container decrypted, but no usable links came out of it.");
-        toast.error(
-          d.protectedPages.length
-            ? "Container decrypted, but its links are captcha-protected — see the open-me queue"
-            : "No download links in that container",
-        );
+    },
+
+    onError: (error) => {
+      reportError(error, "Could not read that container");
+    },
+
+    onSuccess: (result, { host }) => {
+      if (!result.items.length) {
+        if (result.protectedPages.length) {
+          applyResult(result, false);
+        }
+
+        const text = result.protectedPages.length
+          ? "Container decrypted, but its links need browser verification. See the open-me queue."
+          : "No supported links were returned from the container. Existing files were kept.";
+
+        setStatus({ kind: "info", text });
+        toast.info(text);
         return;
       }
-      const pd = d.items.filter((i) => i.host === dlcHost).length;
-      setStatus(
-        `Done — ${d.items.length} link${d.items.length === 1 ? "" : "s"} from the container, ${pd} ${HOST_LABELS[dlcHost]} selected.`,
-      );
-      toast.success(
-        `Added ${d.items.length} link${d.items.length === 1 ? "" : "s"} — ${pd} ${HOST_LABELS[dlcHost]} selected, ${
-          d.items.length - pd
-        } other host${d.items.length - pd === 1 ? "" : "s"} hidden`,
-      );
+
+      applyResult(result, true, host);
+      setActivePaste(null);
+      setPasteValue("");
+
+      const hostCount = result.items.filter((item) => item.host === host).length;
+
+      const text =
+        `Added ${result.items.length} link(s); ` +
+        `${hostCount} ${HOST_LABELS[host]} link(s) enabled for selection. ` +
+        "Optional-file filtering still applies.";
+
+      setStatus({ kind: "success", text });
+      toast.success(`Added ${result.items.length} container link(s)`);
     },
   });
 
   const quickWgetMutation = useMutation({
-    mutationFn: (link: string) => resolvePaste({ data: { content: link, label: "quick" } }),
-    onMutate: () => setStatus("Resolving that link's filename…"),
-    onError: (e: Error) => {
-      setStatus(null);
-      toast.error(e.message || "Could not build the wget command");
+    mutationFn: (link: string) => resolveInput(link, link),
+
+    onMutate: () => {
+      setStatus({
+        kind: "working",
+        text: "Preparing the download command…",
+      });
     },
-    onSuccess: (d) => {
-      if (d.items.length === 0) {
-        setStatus("No supported link was found in that input.");
-        toast.error("No Pixeldrain or FileDitch link found in that input");
+
+    onError: (error) => {
+      reportError(error, "Could not build the wget command");
+    },
+
+    onSuccess: async (result) => {
+      const downloadable = result.items.map(normalizeItem).filter((item) => item.tool === "wget");
+
+      if (!downloadable.length) {
+        setStatus({
+          kind: "info",
+          text: "No supported wget links were found.",
+        });
+        toast.error("No supported wget links were found");
         return;
       }
-      merge(d);
-      const cmd = buildWget(d.items, clearance);
-      void navigator.clipboard.writeText(cmd);
-      setStatus("Done — wget command copied to your clipboard.");
-      toast.success("wget command copied to clipboard");
+
+      applyResult(result, false);
+
+      try {
+        await navigator.clipboard.writeText(buildWget(downloadable, clearance));
+
+        setStatus({
+          kind: "success",
+          text: "wget command copied to your clipboard.",
+        });
+        toast.success("wget command copied");
+      } catch {
+        setStatus({
+          kind: "info",
+          text: "Links were added, but clipboard access failed. Use the command box or download.sh export below.",
+        });
+        toast.error("Clipboard access failed. Use the command box or export below.");
+      }
     },
   });
 
   const busy =
-    scrapeMutation.isPending ||
-    pasteMutation.isPending ||
-    dlcMutation.isPending ||
-    quickWgetMutation.isPending;
-
+    scrapeMutation.isPending || pasteMutation.isPending || dlcMutation.isPending || quickWgetMutation.isPending;
 
   /**
-   * FuckingFast links only come from FitGirl repacks in this app, so any
-   * FuckingFast item means we're in FitGirl mode: FuckingFast mirrors only,
-   * IDM export, and the optional-content toggle becomes available.
+   * Only show quick wget for one complete supported URL whose extracted
+   * item actually recommends wget. Includes FileKeeper and tunnel URLs.
    */
-  const fitgirlMode = useMemo(() => items.some((i) => i.host === "fuckingfast"), [items]);
+  const singleWgetLink = useMemo(() => {
+    const target = url.trim();
+    if (!target || /\s/.test(target)) return null;
 
-  /** A single Pixeldrain / FileDitch link present in the top URL input only. */
-  const singlePdLink = useMemo(() => {
-    const RX =
-      /https?:\/\/(?:www\.)?(?:pixeldrain\.com\/[ul]\/[A-Za-z0-9]+|(?:[a-z0-9-]+\.)?fileditch(?:files)?\.(?:st|me|com)\/\S+\.[A-Za-z0-9]{2,5})/gi;
-    const t = url.trim();
-    if (!t) return null;
-    const matches = t.match(RX);
-    return matches && matches.length === 1 ? matches[0] : null;
+    try {
+      const parsed = new URL(target);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    if (!isFileHostUrl(target)) return null;
+
+    const found = new Map<string, PixeldrainItem>();
+    extract(target, target, found);
+    const entries = [...found.values()];
+
+    if (entries.length !== 1) return null;
+
+    const item = normalizeItem(entries[0]!);
+    if (item.tool !== "wget") return null;
+
+    return {
+      url: target,
+      label: HOST_LABELS[item.host],
+    };
   }, [url]);
 
-  const visibleItems = useMemo(() => {
-    let out = fitgirlMode
-      ? items.filter(
-          (i) => i.host === "fuckingfast" || i.host === "pixeldrain" || i.host === "fileditch",
-        )
-      : items;
-    if (!includeOptional) out = out.filter((i) => !i.optional);
-    return out;
-  }, [items, fitgirlMode, includeOptional]);
+  const hasOptional = useMemo(() => items.some((item) => item.optional), [items]);
+
+  const visibleItems = useMemo(
+    () => (includeOptional ? items : items.filter((item) => !item.optional)),
+    [items, includeOptional],
+  );
 
   const selectedItems = useMemo(
-    () => visibleItems.filter((i) => !excluded.has(keyOf(i))),
+    () => visibleItems.filter((item) => !excluded.has(keyOf(item))),
     [visibleItems, excluded],
   );
 
   const wgetItems = useMemo(
     () =>
-      mode === "idm"
-        ? []
-        : mode === "wget"
-          ? selectedItems
-          : fitgirlMode
-            ? []
-            : selectedItems.filter((i) => i.tool === "wget"),
-    [selectedItems, mode, fitgirlMode],
+      mode === "idm" ? [] : mode === "wget" ? selectedItems : selectedItems.filter((item) => item.tool === "wget"),
+    [selectedItems, mode],
   );
-  const idmItems = useMemo(
-    () =>
-      mode === "wget"
-        ? []
-        : mode === "idm"
-          ? selectedItems
-          : fitgirlMode
-            ? selectedItems.filter((i) => i.tool === "idm")
-            : [],
-    [selectedItems, mode, fitgirlMode],
-  );
-  const hasFileDitch = useMemo(() => wgetItems.some((i) => i.host === "fileditch"), [wgetItems]);
-  const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
-  const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
-  const openMe = pending.filter((p) => p.status === "open-me");
 
-  const toggleItem = (k: string) =>
-    setExcluded((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
+  const idmItems = useMemo(
+    () => (mode === "wget" ? [] : mode === "idm" ? selectedItems : selectedItems.filter((item) => item.tool === "idm")),
+    [selectedItems, mode],
+  );
+
+  const hasFileDitch = wgetItems.some((item) => item.host === "fileditch");
+
+  const hasFileKeeper = wgetItems.some((item) => item.host === "filekeeper");
+
+  const forcedPageHosts = wgetItems.some((item) => item.tool === "idm");
+
+  const idmHasFileKeeper = idmItems.some((item) => item.host === "filekeeper");
+
+  const command = useMemo(() => buildWget(wgetItems, clearance), [wgetItems, clearance]);
+
+  const idmList = useMemo(() => buildIdmList(idmItems), [idmItems]);
+
+  const openMe = pending.filter((page) => page.status === "open-me");
+
+  const scannedCount = scannedPages.size;
+
+  useEffect(() => {
+    setCopied(false);
+  }, [command]);
+
+  useEffect(() => {
+    setCopiedIdm(false);
+  }, [idmList]);
+
+  function toggleItem(key: string) {
+    setExcluded((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+
       return next;
     });
+  }
 
-  const selectAll = () => setExcluded(new Set());
-  const selectNone = () => setExcluded(new Set(visibleItems.map(keyOf)));
+  function selectAll() {
+    setExcluded((previous) => {
+      const next = new Set(previous);
+      for (const item of visibleItems) next.delete(keyOf(item));
+      return next;
+    });
+  }
 
-  const copy = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    toast.success("Command copied — paste it in a terminal to grab everything");
-    setTimeout(() => setCopied(false), 1600);
-  };
+  function selectNone() {
+    setExcluded((previous) => {
+      const next = new Set(previous);
+      for (const item of visibleItems) next.add(keyOf(item));
+      return next;
+    });
+  }
 
-  const copyIdm = async () => {
-    await navigator.clipboard.writeText(idmList);
-    setCopiedIdm(true);
-    toast.success("URLs copied — paste into IDM batch download");
-    setTimeout(() => setCopiedIdm(false), 1600);
-  };
+  async function copyCommand() {
+    if (!command) return;
 
-  const downloadEf2 = () => {
-    const name = exportName(idmItems, url, "ef2");
-    const blob = new Blob([buildIdmEf2(idmItems)], { type: "text/plain" });
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(href);
-    toast.success(`Exported ${name}`);
-  };
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      toast.success("Command copied");
 
-  const downloadText = (content: string, filename: string, label: string) => {
-    const blob = new Blob([content], { type: "text/plain" });
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(href);
-    toast.success(`Exported ${label}`);
-  };
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast.error("Clipboard access failed. Select the command manually or export it.");
+    }
+  }
 
-  const submitPaste = (label: string) => {
+  async function copyIdm() {
+    if (!idmList) return;
+
+    try {
+      await navigator.clipboard.writeText(idmList);
+      setCopiedIdm(true);
+      toast.success("URLs copied — paste into IDM batch download");
+
+      if (idmCopyTimer.current) {
+        clearTimeout(idmCopyTimer.current);
+      }
+
+      idmCopyTimer.current = setTimeout(() => setCopiedIdm(false), 1600);
+    } catch {
+      toast.error("Clipboard access failed. Select the URLs manually or export them.");
+    }
+  }
+
+  function downloadText(content: string, filename: string) {
+    if (!content) {
+      toast.error("There is nothing to export.");
+      return;
+    }
+
+    let href: string | undefined;
+    const anchor = document.createElement("a");
+
+    try {
+      const blob = new Blob([content], {
+        type: "text/plain;charset=utf-8",
+      });
+
+      href = URL.createObjectURL(blob);
+      anchor.href = href;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+
+      toast.success(`Exported ${filename}`);
+    } catch (error) {
+      toast.error(errorMessage(error, "Export failed"));
+    } finally {
+      anchor.remove();
+
+      if (href) {
+        const objectUrl = href;
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      }
+    }
+  }
+
+  function submitPaste(label: string, replace: boolean) {
+    if (busy) return;
+
     const problem = validateManualInput(pasteValue);
+
     if (problem) {
-      setStatus(null);
+      setStatus({ kind: "error", text: problem });
       toast.error(problem);
       return;
     }
-    pasteMutation.mutate({ content: pasteValue, label });
-  };
 
-  const startScrape = () => {
+    pasteMutation.mutate({
+      content: pasteValue.trim(),
+      label,
+      replace,
+    });
+  }
+
+  function startScrape() {
+    if (busy) return;
+
     const target = url.trim();
+
     if (!target) {
       toast.error("Paste a page or file URL first.");
       return;
     }
-    if (!/^https?:\/\/[^\s.]+\.[^\s]{2,}/i.test(target)) {
+
+    try {
+      const parsed = new URL(target);
+
+      if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || /\s/.test(target)) {
+        throw new Error("Invalid URL");
+      }
+    } catch {
       toast.error(
         /^https?:\/\//i.test(target)
           ? "That doesn't look like a complete web address."
-          : "Add https:// in front of that address.",
+          : "Paste a full address starting with https://.",
       );
       return;
     }
-    if (isProtected(target)) {
-      toast.error(
-        "That host is captcha-protected — use the manual paste or .dlc upload below instead",
-      );
-      setStatus("Captcha-protected page queued below — open it and paste the result.");
-      setPending((prev) =>
-        prev.some((p) => p.url === target) ? prev : [...prev, { url: target, status: "open-me" }],
-      );
-      return;
-    }
-    // A direct file link (Pixeldrain, FileDitch, …) is not a page to crawl —
-    // resolve it straight into an item instead of downloading the file.
-    if (isFileHostUrl(target)) {
-      pasteMutation.mutate({ content: target, label: target });
-      return;
-    }
-    scrapeMutation.mutate(target);
-  };
 
-  const resetAll = () => {
+    if (isProtected(target)) {
+      setPending((previous) => mergePending(previous, [target]));
+
+      setStatus({
+        kind: "info",
+        text: "Protected page queued below. Open it, complete verification, then paste the revealed links.",
+      });
+
+      toast.info("Open the protected page using the queue below");
+      return;
+    }
+
+    if (isFileHostUrl(target)) {
+      pasteMutation.mutate({
+        content: target,
+        label: target,
+        replace: true,
+      });
+      return;
+    }
+
+    scrapeMutation.mutate(target);
+  }
+
+  function resetAll() {
+    if (busy) return;
+
+    setUrl("");
     setItems([]);
     setPending([]);
-    setScannedCount(0);
+    setScannedPages(new Set<string>());
     setActivePaste(null);
     setPasteValue("");
-    setExcluded(new Set());
+    setExcluded(new Set<string>());
     setStatus(null);
-  };
+    setClearance("");
+    setCopied(false);
+    setCopiedIdm(false);
+    setIncludeOptional(false);
+    setMode("auto");
 
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    if (idmCopyTimer.current) clearTimeout(idmCopyTimer.current);
+
+    scrapeMutation.reset();
+    pasteMutation.reset();
+    dlcMutation.reset();
+    quickWgetMutation.reset();
+  }
 
   return (
     <main className="min-h-screen bg-background">
       <Toaster />
+
       <div className="border-b border-border" style={{ backgroundImage: "var(--gradient-hero)" }}>
         <div className="mx-auto max-w-4xl px-6 py-16">
           <div className="mb-4 flex items-center gap-2">
             <Badge variant="outline" className="gap-1.5">
-              <Terminal className="h-3.5 w-3.5" /> personal
+              <Terminal className="h-3.5 w-3.5" />
+              personal
             </Badge>
+
             <Button variant="outline" size="sm" asChild>
               <a
                 href="https://github.com/varunojhaa/personal-scraper"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="gap-1.5"
               >
-                <Github className="h-3.5 w-3.5" /> GitHub
+                <Github className="h-3.5 w-3.5" />
+                GitHub
               </a>
             </Button>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            Personal Scraper
-          </h1>
+
+          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">Personal Scraper</h1>
+
           <p className="mt-2 text-sm font-medium text-amber-300">
-            Not a universal scraper — only the currently detected sources are supported:
-            Pixeldrain links (from other sites) and FuckingFast mirrors (from fitgirl-repacks.site).
-            Captcha hosts like filecrypt and viewcrate are never scraped directly; use a .dlc
-            container or paste the link manually.
+            Not a universal scraper. Supported download hosts: {Object.values(HOST_LABELS).join(", ")}.
+            Captcha-protected pages must be opened in your browser.
           </p>
+
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Scan a page for direct links, or feed it a .dlc container / manual paste. Pick the files
-            you want and copy one wget command (Pixeldrain) or an IDM batch list (FuckingFast).
+            Scan a page, paste supported links, or upload a .dlc container. Select files and export a wget command or
+            IDM download list.
           </p>
 
           <form
             className="mt-8 flex flex-col gap-3 rounded-2xl border-2 border-primary/50 bg-card/60 p-3 shadow-[var(--shadow-glow)] backdrop-blur sm:flex-row"
-            onSubmit={(e) => {
-              e.preventDefault();
+            onSubmit={(event) => {
+              event.preventDefault();
               startScrape();
             }}
           >
             <div className="relative flex-1">
               <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
               <Input
                 type="url"
                 required
+                aria-label="Page or download URL"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com/page-with-links"
+                disabled={busy}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://filekeeper.net/bq63fli1d8x8"
                 className="h-12 border-primary/40 pl-9 text-base ring-primary/30"
               />
             </div>
-            <Button
-              type="submit"
-              size="lg"
-              disabled={scrapeMutation.isPending}
-              className="h-12 px-7 text-base shadow-[var(--shadow-glow)]"
-            >
-              {scrapeMutation.isPending ? (
+
+            <Button type="submit" size="lg" disabled={busy} className="h-12 px-7 text-base shadow-[var(--shadow-glow)]">
+              {busy ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Scraping
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Working
                 </>
               ) : (
                 <>
-                  <Download className="h-4 w-4" /> Scrape links
+                  <Download className="h-4 w-4" />
+                  Collect links
                 </>
               )}
             </Button>
           </form>
 
-          {singlePdLink && (
-            <div className="mt-3 flex items-center gap-3">
-              <p className="text-xs text-muted-foreground">
-                Single {singlePdLink.includes("fileditch") ? "FileDitch" : "Pixeldrain"} link
-                detected — copy a ready wget command for it.
-              </p>
+          {singleWgetLink && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p className="text-xs text-muted-foreground">Single {singleWgetLink.label} link detected.</p>
+
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={quickWgetMutation.isPending}
-                onClick={() => quickWgetMutation.mutate(singlePdLink)}
+                disabled={busy}
+                onClick={() => quickWgetMutation.mutate(singleWgetLink.url)}
               >
                 {quickWgetMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -505,47 +834,51 @@ function Index() {
           )}
 
           {(busy || status) && (
-            <div className="mt-4 rounded-xl border border-primary/40 bg-card/70 p-4 backdrop-blur">
+            <div
+              className="mt-4 rounded-xl border border-primary/40 bg-card/70 p-4 backdrop-blur"
+              role="status"
+              aria-live="polite"
+            >
               <div className="flex items-center gap-2 text-sm">
                 {busy ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-                ) : (
+                ) : status?.kind === "error" ? (
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-destructive" />
+                ) : status?.kind === "success" ? (
                   <Check className="h-4 w-4 shrink-0 text-primary" />
+                ) : (
+                  <Link2 className="h-4 w-4 shrink-0 text-primary" />
                 )}
-                <span className="text-foreground">
-                  {status ?? "Working…"}
-                </span>
+
+                <span className="break-words text-foreground">{status?.text ?? "Working…"}</span>
               </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className={
-                    busy
-                      ? "h-full w-1/3 animate-[progress-slide_1.2s_ease-in-out_infinite] rounded-full bg-primary"
-                      : "h-full w-full rounded-full bg-primary/70"
-                  }
-                />
-              </div>
+
+              {busy && (
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+                </div>
+              )}
+
               {items.length > 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {items.length} link{items.length === 1 ? "" : "s"} collected · {scannedCount} page
-                  {scannedCount === 1 ? "" : "s"} scanned
+                  {items.length} link(s) collected · {scannedCount} unique page(s) scanned
                 </p>
               )}
             </div>
           )}
-
         </div>
       </div>
 
       <div className="mx-auto max-w-4xl px-6 py-12">
         {(items.length > 0 || pending.length > 0) && (
-          <div className="mb-6 flex items-center justify-between text-xs text-muted-foreground">
+          <div className="mb-6 flex items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>
-              {scannedCount} page{scannedCount === 1 ? "" : "s"} scanned · {items.length} link
-              {items.length === 1 ? "" : "s"} collected
+              {scannedCount} page(s) scanned · {items.length} link(s) collected
             </span>
-            <Button variant="ghost" size="sm" onClick={resetAll}>
-              <Trash2 className="h-3.5 w-3.5" /> Clear session
+
+            <Button variant="ghost" size="sm" disabled={busy} onClick={resetAll}>
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear session
             </Button>
           </div>
         )}
@@ -554,74 +887,87 @@ function Index() {
           <Card className="mb-6 border-destructive/40">
             <CardHeader className="flex-row items-center gap-2 space-y-0">
               <ShieldAlert className="h-4 w-4 text-destructive" />
-              <CardTitle className="text-base">
-                Open me — captcha-protected pages ({openMe.length} left)
-              </CardTitle>
+              <CardTitle className="text-base">Open me — protected pages ({openMe.length} left)</CardTitle>
             </CardHeader>
+
             <CardContent className="grid gap-3">
               <p className="text-sm text-muted-foreground">
-                filecrypt / viewcrate style pages are never scraped. Open one, solve the captcha,
-                then either download its .dlc container and upload it below, or paste the Pixeldrain
-                link it reveals here.
+                Open a page and complete its verification. Then upload its .dlc container or paste the supported
+                download links it reveals. Pasting a result here adds to your current session.
               </p>
 
-              {pending.map((p) => (
-                <div key={p.url} className="rounded-md border border-border bg-secondary/40 p-3">
+              {pending.map((page) => (
+                <div key={page.url} className="rounded-md border border-border bg-secondary/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span
+                      title={page.url}
                       className="min-w-0 flex-1 truncate text-sm"
-                      style={{ fontFamily: "var(--font-mono-stack)" }}
+                      style={{
+                        fontFamily: "var(--font-mono-stack)",
+                      }}
                     >
-                      {p.url}
+                      {page.url}
                     </span>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={p.status === "resolved" ? "default" : "secondary"}>
-                        {p.status === "resolved" ? "resolved" : "open me"}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={page.status === "resolved" ? "default" : "secondary"}>
+                        {page.status === "resolved" ? "resolved" : "open me"}
                       </Badge>
+
                       <Button variant="outline" size="sm" asChild>
-                        <a href={p.url} target="_blank" rel="noreferrer">
-                          <ExternalLink className="h-3.5 w-3.5" /> Open
+                        <a href={page.url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open
                         </a>
                       </Button>
+
                       <Button
                         variant="secondary"
                         size="sm"
+                        disabled={busy}
                         onClick={() => {
-                          setActivePaste(activePaste === p.url ? null : p.url);
+                          setActivePaste(activePaste === page.url ? null : page.url);
                           setPasteValue("");
                         }}
                       >
-                        <ClipboardPaste className="h-3.5 w-3.5" /> Paste result
+                        <ClipboardPaste className="h-3.5 w-3.5" />
+                        Paste result
                       </Button>
                     </div>
                   </div>
 
-                  {activePaste === p.url && (
+                  {activePaste === page.url && (
                     <div className="mt-3 grid gap-2">
                       <Textarea
                         autoFocus
                         rows={4}
+                        disabled={busy}
+                        aria-label="Revealed download links"
                         value={pasteValue}
-                        onChange={(e) => setPasteValue(e.target.value)}
-                        placeholder="Paste the Pixeldrain link, the redirected URL, or the page HTML…"
+                        onChange={(event) => setPasteValue(event.target.value)}
+                        placeholder="Paste revealed download links or page HTML…"
                         className="text-xs"
-                        style={{ fontFamily: "var(--font-mono-stack)" }}
+                        style={{
+                          fontFamily: "var(--font-mono-stack)",
+                        }}
                       />
+
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => setActivePaste(null)}>
+                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => setActivePaste(null)}>
                           Cancel
                         </Button>
+
                         <Button
                           size="sm"
-                          disabled={pasteMutation.isPending}
-                          onClick={() => submitPaste(p.url)}
+                          disabled={busy || !pasteValue.trim()}
+                          onClick={() => submitPaste(page.url, false)}
                         >
                           {pasteMutation.isPending ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Check className="h-3.5 w-3.5" />
                           )}
-                          Extract links
+                          Add links
                         </Button>
                       </div>
                     </div>
@@ -636,9 +982,16 @@ function Index() {
           <CardHeader>
             <CardTitle className="text-base">Add links manually</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-2">
+
+          <CardContent className="grid gap-3">
+            <p className="text-xs text-muted-foreground">
+              Paste supported links or HTML. A successful manual import replaces the current file list.
+            </p>
+
             <Textarea
-              rows={3}
+              rows={4}
+              disabled={busy}
+              aria-label="Manual download links or HTML"
               value={activePaste === "__manual__" ? pasteValue : ""}
               onFocus={() => {
                 if (activePaste !== "__manual__") {
@@ -646,17 +999,26 @@ function Index() {
                   setPasteValue("");
                 }
               }}
-              onChange={(e) => setPasteValue(e.target.value)}
-              placeholder="Paste any Pixeldrain / FuckingFast links, a solved page URL, or raw HTML…"
+              onChange={(event) => {
+                setActivePaste("__manual__");
+                setPasteValue(event.target.value);
+              }}
+              placeholder="Paste Pixeldrain, FileDitch, FileKeeper, FuckingFast, or DataNodes links…"
               className="text-xs"
               style={{ fontFamily: "var(--font-mono-stack)" }}
             />
+
+            <p className="text-xs text-muted-foreground">
+              FileKeeper: prefer the original filekeeper.net URL. Fresh tunnel*.dlproxy.uk/download/ links are also
+              accepted, but signed links can expire.
+            </p>
+
             <div className="flex justify-end">
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={pasteMutation.isPending || activePaste !== "__manual__"}
-                onClick={() => submitPaste("manual paste")}
+                disabled={busy || activePaste !== "__manual__" || !pasteValue.trim()}
+                onClick={() => submitPaste("manual paste", true)}
               >
                 {pasteMutation.isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -673,105 +1035,131 @@ function Index() {
           <CardHeader>
             <CardTitle className="text-base">Upload a .dlc container</CardTitle>
           </CardHeader>
+
           <CardContent className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              Drop a JDownloader <code>.dlc</code> container here. It gets decrypted and every link
-              inside lands in the file picker below, but only{" "}
-              <strong>{HOST_LABELS[dlcHost]}</strong> links are ticked by default — other hosts stay
-              deselected so you copy a pure {HOST_LABELS[dlcHost]} wget command. Tick the rest
-              manually if you want them.
+              Choose a JDownloader <code>.dlc</code> container. A successful import replaces the current list and
+              enables returned <strong>{HOST_LABELS[dlcHost]}</strong> links for selection. Other returned hosts remain
+              deselected.
             </p>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Auto-select:</span>
-              <div className="flex items-center gap-1 rounded-md border border-border p-1">
-                {(["pixeldrain", "fileditch", "filekeeper"] as const).map((h) => (
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Preferred host:</span>
+
+              <div className="flex flex-wrap items-center gap-1 rounded-md border border-border p-1">
+                {DLC_HOSTS.map((host) => (
                   <Button
-                    key={h}
+                    key={host}
                     type="button"
                     size="sm"
-                    variant={dlcHost === h ? "default" : "ghost"}
+                    disabled={busy}
+                    variant={dlcHost === host ? "default" : "ghost"}
                     className="h-7 px-3 text-xs"
-                    onClick={() => setDlcHost(h)}
+                    onClick={() => setDlcHost(host)}
                   >
-                    {HOST_LABELS[h]}
+                    {HOST_LABELS[host]}
                   </Button>
                 ))}
               </div>
             </div>
+
+            {dlcHost === "filekeeper" && (
+              <p className="text-xs text-muted-foreground">
+                FileKeeper page-following is disabled during container import. Direct FileKeeper links are resolved by
+                the generated download command. Protected wrapper links may still need manual opening.
+              </p>
+            )}
+
             <div className="flex flex-wrap items-center gap-3">
               <label
                 htmlFor="dlc-file"
-                className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-primary/60 bg-primary/10 px-4 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                className={
+                  "inline-flex h-11 items-center gap-2 rounded-md border border-primary/60 bg-primary/10 px-4 text-sm font-medium text-primary transition-colors " +
+                  (busy ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-primary/20")
+                }
               >
                 <Upload className="h-4 w-4" />
                 Choose .dlc file
               </label>
+
               <input
                 id="dlc-file"
                 type="file"
                 accept=".dlc,.txt"
                 className="sr-only"
-                // Reset on click (not in onChange) so re-picking the same file
-                // still fires, without invalidating the File before it's read.
-                onClick={(e) => {
-                  (e.target as HTMLInputElement).value = "";
+                disabled={busy}
+                onClick={(event) => {
+                  event.currentTarget.value = "";
                 }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) dlcMutation.mutate(file);
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (!file || busy) return;
+
+                  dlcMutation.mutate({
+                    file,
+                    host: dlcHost,
+                  });
                 }}
-                disabled={dlcMutation.isPending}
               />
 
               {dlcMutation.isPending && (
                 <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Decrypting container…
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Decrypting container…
                 </span>
               )}
             </div>
-
           </CardContent>
         </Card>
-
-        {scrapeMutation.isSuccess && items.length === 0 && pending.length === 0 && (
-          <p className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
-            No download links found on that page.
-          </p>
-        )}
 
         {items.length > 0 && (
           <div className="grid gap-6">
             <Card>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
                 <CardTitle className="text-base">Download tool</CardTitle>
+
                 <div className="flex flex-wrap items-center gap-3">
-                  {fitgirlMode && (
+                  {hasOptional && (
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Switch checked={includeOptional} onCheckedChange={setIncludeOptional} />
-                      Include optional content
+                      Include optional/selective files
                     </label>
                   )}
+
                   <div className="flex items-center gap-1 rounded-md border border-border p-1">
-                    {(["auto", "wget", "idm"] as ToolMode[]).map((m) => (
+                    {TOOL_MODES.map((toolMode) => (
                       <Button
-                        key={m}
+                        key={toolMode}
                         size="sm"
-                        variant={mode === m ? "default" : "ghost"}
-                        onClick={() => setMode(m)}
+                        variant={mode === toolMode ? "default" : "ghost"}
+                        onClick={() => setMode(toolMode)}
                       >
-                        {m === "auto" ? "Auto" : m === "wget" ? "wget" : "IDM"}
+                        {toolMode === "auto" ? "Auto" : toolMode === "wget" ? "wget" : "IDM"}
                       </Button>
                     ))}
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+
+              <CardContent className="grid gap-2">
                 <p className="text-xs text-muted-foreground">
-                  Auto sends Pixeldrain to wget and FuckingFast to IDM. Pick wget or IDM to force
-                  everything into one list.
-                  {fitgirlMode && " · FitGirl detected — FuckingFast mirrors only."}
-                  {fitgirlMode && !includeOptional && " · optional content (bonus/selective files) is hidden."}
+                  Auto sends Pixeldrain, FileDitch, and FileKeeper to wget; FuckingFast and DataNodes to IDM. No host is
+                  hidden just because another host is present.
                 </p>
+
+                {hasOptional && !includeOptional && (
+                  <p className="text-xs text-amber-500">
+                    Optional/selective files are hidden. Check the source instructions: some installations require at
+                    least one selective language pack.
+                  </p>
+                )}
+
+                {forcedPageHosts && (
+                  <p className="text-xs text-amber-500">
+                    Forcing FuckingFast or DataNodes into wget may save an HTML page instead of the file. Use Auto or
+                    IDM unless you have a real direct download URL.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -780,104 +1168,180 @@ function Index() {
                 <CardTitle className="text-base">
                   Select files ({selectedItems.length}/{visibleItems.length})
                 </CardTitle>
+
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={selectAll}>
+                  <Button variant="outline" size="sm" disabled={!visibleItems.length} onClick={selectAll}>
                     Select all
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={selectNone}>
-                    Clear
+
+                  <Button variant="ghost" size="sm" disabled={!visibleItems.length} onClick={selectNone}>
+                    Clear selection
                   </Button>
                 </div>
               </CardHeader>
+
               <CardContent className="grid gap-2">
-                <div
-                  className="grid gap-2 overflow-y-auto pr-1"
-                  style={{ maxHeight: "calc(7 * 44px + 6 * 8px)" }}
-                >
-                {visibleItems.map((i) => {
-                  const k = keyOf(i);
-                  const checked = !excluded.has(k);
-                  return (
-                    <label
-                      key={k}
-                      className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
-                    >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleItem(k)} />
-                      <span
-                        className="min-w-0 flex-1 truncate text-sm"
-                        style={{ fontFamily: "var(--font-mono-stack)" }}
-                      >
-                        {i.filename || i.pageUrl}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <Badge variant="outline">{HOST_LABELS[i.host]}</Badge>
-                        {i.optional && <Badge variant="secondary">optional</Badge>}
-                        <Badge variant={i.tool === "wget" ? "default" : "secondary"}>
-                          {i.tool}
-                        </Badge>
-                      </span>
-                    </label>
-                  );
-                })}
-                </div>
+                {visibleItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    All files are hidden by the optional/selective filter. Enable the toggle above to show them.
+                  </p>
+                ) : (
+                  <div
+                    className="grid gap-2 overflow-y-auto pr-1"
+                    style={{
+                      maxHeight: "calc(7 * 52px + 6 * 8px)",
+                    }}
+                  >
+                    {visibleItems.map((item) => {
+                      const key = keyOf(item);
+                      const checked = !excluded.has(key);
+
+                      const effectiveTool = mode === "auto" ? item.tool : mode;
+
+                      return (
+                        <label
+                          key={key}
+                          className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-secondary/40 px-3 py-2"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            aria-label={`Select ${item.filename || item.pageUrl}`}
+                            onCheckedChange={() => toggleItem(key)}
+                          />
+
+                          <span
+                            title={item.filename || item.pageUrl}
+                            className="min-w-0 flex-1 truncate text-sm"
+                            style={{
+                              fontFamily: "var(--font-mono-stack)",
+                            }}
+                          >
+                            {item.filename || item.pageUrl}
+                          </span>
+
+                          <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                            <Badge variant="outline">{HOST_LABELS[item.host]}</Badge>
+
+                            {item.optional && <Badge variant="secondary">optional</Badge>}
+
+                            <Badge variant={effectiveTool === "wget" ? "default" : "secondary"}>{effectiveTool}</Badge>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {visibleItems.length > 0 && selectedItems.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">Select at least one file to generate an export.</p>
+                )}
               </CardContent>
             </Card>
 
             {wgetItems.length > 0 && (
               <Card>
-                <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
                   <CardTitle className="text-base">wget command ({wgetItems.length})</CardTitle>
+
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        const name = exportName(wgetItems, url, "sh");
-                        downloadText(buildShellScript(wgetItems, clearance), name, name);
-                      }}
+                      onClick={() =>
+                        downloadText(buildShellScript(wgetItems, clearance), exportName(wgetItems, url, "sh"))
+                      }
                     >
-                      <FileDown className="h-4 w-4" /> download.sh
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadText(command, exportName(wgetItems, url, "txt"), exportName(wgetItems, url, "txt"))}>
-                      <FileDown className="h-4 w-4" /> .txt
+                      <FileDown className="h-4 w-4" />
+                      download.sh
                     </Button>
 
-                    <Button variant="secondary" size="sm" onClick={copy}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadText(command, exportName(wgetItems, url, "txt"))}
+                    >
+                      <FileDown className="h-4 w-4" />
+                      .txt
+                    </Button>
+
+                    <Button variant="secondary" size="sm" onClick={copyCommand}>
                       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copied ? "Copied" : "Copy"}
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  {hasFileDitch && (
-                    <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-                      <p className="mb-2 text-xs text-muted-foreground">
-                        <strong className="text-foreground">FileDitch browser pass.</strong>{" "}
-                        FileDitch sits behind a Cloudflare browser check that a terminal command
-                        can&apos;t pass on its own. Open the file page once in your browser, copy the{" "}
-                        <code>cf_clearance</code> cookie value for fileditch, and paste it here — the
-                        command below picks it up. It stays in this page only and is never stored.
+
+                <CardContent className="grid gap-3">
+                  {hasFileKeeper && (
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="text-xs text-muted-foreground">
+                        <strong className="text-foreground">FileKeeper downloads.</strong> The generated command uses
+                        Python 3 to submit the free-download form, retain cookies, wait for an advertised countdown, and
+                        pass the signed tunnel URL to wget.
                       </p>
-                      <Input
-                        value={clearance}
-                        onChange={(e) => setClearance(e.target.value)}
-                        placeholder="cf_clearance cookie value (optional)"
-                        className="h-9 text-xs"
-                        style={{ fontFamily: "var(--font-mono-stack)" }}
-                      />
+
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Prefer the original filekeeper.net link. Pasted tunnel URLs can expire or be single-use. If the
+                        page requires a captcha or unsupported JavaScript, open it in your browser and copy a fresh
+                        download URL.
+                      </p>
+
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        If a filename is unknown, wget uses the server&apos;s Content-Disposition header. Those items do
+                        not receive filename-based .done markers.
+                      </p>
                     </div>
                   )}
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Copy this command and paste it into a terminal — it downloads every selected
-                    file in the background, so it keeps running after you close the session.
-                    Progress goes to wget.log (tail -f wget.log).
+
+                  {hasFileDitch && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        <strong className="text-foreground">FileDitch browser pass.</strong> If requested by the
+                        downloader, paste your own FileDitch <code>cf_clearance</code> cookie. It may expire or be tied
+                        to your browser and IP address.
+                      </p>
+
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-label="FileDitch cf_clearance cookie"
+                        value={clearance}
+                        onChange={(event) => setClearance(event.target.value)}
+                        placeholder="cf_clearance value (optional)"
+                        className="h-9 text-xs"
+                        style={{
+                          fontFamily: "var(--font-mono-stack)",
+                        }}
+                      />
+
+                      <p className="mt-2 text-xs text-amber-500">
+                        This field is kept in page memory and is not sent to the scraper server. However, its value is
+                        embedded in copied commands and exported scripts and may appear in shell history or process
+                        arguments. Do not share those exports. Clear session removes the value from this page.
+                      </p>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">
+                    Paste the command into Bash on Linux/WSL with wget, setsid, and nohup installed. FileKeeper and
+                    FileDitch also require Python 3. Downloads run in the background; monitor them with{" "}
+                    <code>tail -f wget.log</code>.
                   </p>
+
+                  <p className="text-xs text-muted-foreground">
+                    The .sh export runs in the foreground when launched with <code>bash filename.sh</code>.
+                  </p>
+
                   <Textarea
                     readOnly
+                    aria-label="Generated wget command"
                     value={command}
-                    rows={3}
+                    rows={5}
                     className="resize-y overflow-x-auto text-xs"
-                    style={{ fontFamily: "var(--font-mono-stack)" }}
+                    style={{
+                      fontFamily: "var(--font-mono-stack)",
+                    }}
                   />
                 </CardContent>
               </Card>
@@ -885,32 +1349,57 @@ function Index() {
 
             {idmItems.length > 0 && (
               <Card>
-                <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
                   <CardTitle className="text-base">IDM download list ({idmItems.length})</CardTitle>
-                  <div className="flex items-center gap-2">
+
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button variant="secondary" size="sm" onClick={copyIdm}>
                       {copiedIdm ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copiedIdm ? "Copied" : "Copy URLs"}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadText(idmList, exportName(idmItems, url, "txt"), exportName(idmItems, url, "txt"))}>
-                      <FileDown className="h-4 w-4" /> .txt
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadText(idmList, exportName(idmItems, url, "txt"))}
+                    >
+                      <FileDown className="h-4 w-4" />
+                      .txt
                     </Button>
-                    <Button variant="outline" size="sm" onClick={downloadEf2}>
-                      <FileDown className="h-4 w-4" /> .ef2 file
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadText(buildIdmEf2(idmItems), exportName(idmItems, url, "ef2"))}
+                    >
+                      <FileDown className="h-4 w-4" />
+                      .ef2 file
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="grid gap-2">
+
+                <CardContent className="grid gap-3">
                   <p className="text-xs text-muted-foreground">
-                    Copy the URLs, then in IDM use Tasks → Add Batch Download From Clipboard. Or
-                    grab the .ef2 file and use File → Import → From IDM export file.
+                    Copy the URLs, then use IDM → Tasks → Add Batch Download From Clipboard. Or export .ef2 and use File
+                    → Import → From IDM export file. Page URLs may require IDM browser integration.
                   </p>
+
+                  {idmHasFileKeeper && (
+                    <p className="text-xs text-amber-500">
+                      IDM exports do not run the FileKeeper resolver. Use Auto/wget for original FileKeeper page links,
+                      or provide fresh signed tunnel URLs for IDM.
+                    </p>
+                  )}
+
                   <Textarea
                     readOnly
+                    aria-label="IDM download URLs"
                     value={idmList}
                     rows={Math.min(idmItems.length + 1, 14)}
                     className="resize-y text-xs"
-                    style={{ fontFamily: "var(--font-mono-stack)" }}
+                    style={{
+                      fontFamily: "var(--font-mono-stack)",
+                    }}
                   />
                 </CardContent>
               </Card>
