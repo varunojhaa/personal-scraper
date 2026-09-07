@@ -53,7 +53,7 @@ async function namePixeldrainItems(found: Map<string, PixeldrainItem>) {
 
 async function resolveItemMetadata(
   found: Map<string, PixeldrainItem>,
-  hostFilter?: "pixeldrain" | "fileditch",
+  hostFilter?: "pixeldrain" | "fileditch" | "filekeeper",
 ) {
   // FileDitch proof-of-work must not run in the hosted request: even a small
   // challenge can exceed its CPU allowance. Its generated download command
@@ -134,7 +134,7 @@ export async function resolveDlc(
   base64Content: string,
   filename: string,
   follow: boolean,
-  hostFilter?: "pixeldrain" | "fileditch",
+  hostFilter?: "pixeldrain" | "fileditch" | "filekeeper",
 ): Promise<ScrapeResult> {
   const found = new Map<string, PixeldrainItem>();
   const pagesScanned: string[] = [];
