@@ -217,7 +217,23 @@ function shellQuote(name: string) {
   return `'${name.replace(/'/g, "'\\''")}'`;
 }
 
-function fileDitchCommand(item: PixeldrainItem, common: string, clearance = "") {
+/**
+ * HTTP headers must be latin-1 encodable. A pasted cf_clearance value often
+ * arrives with surrounding text (or a "cf_clearance=" prefix, or smart quotes /
+ * em dashes copied along with it), which made python's putheader blow up with
+ * a UnicodeEncodeError. Keep only the cookie value itself, ASCII-only.
+ */
+export function sanitizeClearance(raw: string) {
+  const value = /cf_clearance\s*[=:]\s*([^\s;,"']+)/i.exec(raw)?.[1] ?? raw;
+  return value
+    .trim()
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\u0021-\u007e]/g, "")
+    .replace(/[;,"']/g, "");
+}
+
+function fileDitchCommand(item: PixeldrainItem, common: string, rawClearance = "") {
+  const clearance = sanitizeClearance(rawClearance);
   const filename = item.filename ?? "fileditch-download";
   const python = `import hashlib,html as H,json,re,shlex,subprocess,sys,urllib.error,urllib.parse,urllib.request
 url,name,clearance=sys.argv[1],sys.argv[2],sys.argv[3]
