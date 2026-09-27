@@ -351,9 +351,9 @@ function Index() {
       setCloudflareProgress(null);
       reportError(error, "FileKeeper browser resolution failed");
     },
-    onSuccess: ({ links, resolved, failed }) => {
+    onSuccess: ({ links, resolved, failed }, selected) => {
       setCloudflareProgress(null);
-      downloadText(buildResolvedIdmExport(links), "filekeeper-cloudflare-idm-urls.txt");
+      downloadText(buildResolvedIdmExport(links), exportName(selected, "filekeeper-idm", "txt"));
       const text = `Created an IDM URL list for ${resolved} file(s).${failed.length ? ` ${failed.length} failed.` : ""}`;
       setStatus({ kind: failed.length ? "info" : "success", text });
       if (failed.length) toast.warning(failed.join(" "));
