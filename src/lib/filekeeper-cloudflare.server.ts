@@ -32,8 +32,9 @@ function isDownload(value: string): boolean {
       url.protocol === "https:" &&
       !url.username &&
       !url.password &&
-      (host === "dlproxy.uk" || host.endsWith(".dlproxy.uk")) &&
-      url.pathname.startsWith("/download/")
+      (((host === "dlproxy.uk" || host.endsWith(".dlproxy.uk")) &&
+        url.pathname.startsWith("/download/")) ||
+        (/^fs\d*\.filekeeper\.net$/.test(host) && url.pathname.startsWith("/d/")))
     );
   } catch {
     return false;
