@@ -331,7 +331,7 @@ def is_download(target):
             and not p.password
             and (
                 ((host=="dlproxy.uk" or host.endswith(".dlproxy.uk")) and p.path.startswith("/download/"))
-                or (re.fullmatch(r"fs[0-9]*\\.filekeeper\\.net",host) is not None and p.path.startswith("/d/"))
+                or (re.fullmatch(r"fs[0-9]*[.]filekeeper[.]net",host) is not None and p.path.startswith("/d/"))
             )
         )
     except ValueError:
