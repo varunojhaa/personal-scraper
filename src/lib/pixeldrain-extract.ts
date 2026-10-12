@@ -1263,6 +1263,11 @@ export function validateManualInput(raw: string): string | null {
   );
 }
 
+/** Max characters kept from a filename for single-file exports. */
+const SINGLE_NAME_BUDGET = 22;
+/** Max characters kept from a filename for multi-file exports. */
+const MULTI_NAME_BUDGET = 16;
+
 /** Derive a short, readable export filename from selected files. */
 export function exportName(items: PixeldrainItem[], fallback: string, ext: string): string {
   const names = items
