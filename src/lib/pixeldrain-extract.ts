@@ -305,7 +305,7 @@ function unixScript(script: string): string {
 function fileKeeperCommand(item: PixeldrainItem, common: string): string {
   const filename = safeFilename(item.filename ?? "");
   return (
-    `python3 -c ${shellQuote(fileKeeperPython(common))} ` +
+    `python3 -c ${shellQuote(unixScript(fileKeeperPython(common)))} ` +
     `${shellQuote(item.pageUrl)} ${shellQuote(filename)}`
   );
 }
