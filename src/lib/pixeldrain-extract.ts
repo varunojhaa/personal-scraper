@@ -287,6 +287,15 @@ function shellQuote(value: string): string {
 }
 
 /**
+ * Force Unix (LF) line endings and a trailing newline so the exported script
+ * runs cleanly under bash on Ubuntu/Linux (no $'\r' syntax errors, no
+ * "unexpected end of file" from a missing final newline).
+ */
+function unixScript(script: string): string {
+  return script.replace(/\r\n?/g, "\n").replace(/\n*$/, "") + "\n";
+}
+
+/**
  * Resolve FileKeeper using cookies and recognized free-download forms.
  *
  * Handles HTTP redirects, same-origin refreshes, and the countdown widget.
