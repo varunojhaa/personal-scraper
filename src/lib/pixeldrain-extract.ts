@@ -1147,7 +1147,7 @@ export function buildWget(items: PixeldrainItem[]): string {
     return `if ${completedTest(filename)}; then :; ` + `else ${command} && touch -- ${done}; fi`;
   });
 
-  const script = segments.join("; ");
+  const script = unixScript(segments.join("; ")).trimEnd();
 
   return (
     `setsid nohup bash -c ${shellQuote(script)}` +
