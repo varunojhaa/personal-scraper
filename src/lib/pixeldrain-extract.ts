@@ -1263,7 +1263,7 @@ export function validateManualInput(raw: string): string | null {
   );
 }
 
-/** Derive a readable export filename from selected files. */
+/** Derive a short, readable export filename from selected files. */
 export function exportName(items: PixeldrainItem[], fallback: string, ext: string): string {
   const names = items
     .map((item) => item.filename || item.id || "")
@@ -1273,9 +1273,9 @@ export function exportName(items: PixeldrainItem[], fallback: string, ext: strin
   let slug = "";
 
   if (names.length === 1) {
-    slug = names[0] ?? "";
+    slug = shortSlug(names[0] ?? "", SINGLE_NAME_BUDGET);
   } else if (names.length > 1) {
-    slug = commonPrefix(names);
+    slug = shortSlug(commonPrefix(names), MULTI_NAME_BUDGET);
   }
 
   if (!slug) {
@@ -1291,17 +1291,34 @@ export function exportName(items: PixeldrainItem[], fallback: string, ext: strin
       host = fallback || "";
     }
 
-    slug = host || "downloads";
+    slug = shortSlug(host, MULTI_NAME_BUDGET) || "downloads";
   }
 
-  slug =
-    slug
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 50) || "downloads";
+  return items.length === 1 ? `${slug}.${ext}` : `${slug}-${items.length}.${ext}`;
+}
 
-  return items.length === 1 ? `${slug}.${ext}` : `${slug}-${items.length}files.${ext}`;
+/** Keep only the leading words of a name so exports stay short and simple. */
+function shortSlug(value: string, budget: number): string {
+  const tokens = (value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+
+  let slug = "";
+
+  for (const token of tokens) {
+    const next = slug ? `${slug}-${token}` : token;
+
+    if (slug && next.length > budget) break;
+
+    slug = next;
+
+    if (slug.length >= budget) break;
+  }
+
+  return slug;
 }
 
 function commonPrefix(names: string[]): string {
