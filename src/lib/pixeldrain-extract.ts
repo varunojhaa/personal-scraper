@@ -1302,7 +1302,11 @@ export function exportName(items: PixeldrainItem[], fallback: string, ext: strin
   return items.length === 1 ? `${slug}.${ext}` : `${slug}-${items.length}.${ext}`;
 }
 
-/** Keep only the leading words of a name so exports stay short and simple. */
+/**
+ * Keep only the leading words of a name so exports stay short and simple.
+ * Collection stops at the first episode, quality, codec or source tag
+ * (s01e02, 1080p, x264, web-dl, dsnp, …) so the file keeps just its title.
+ */
 function shortSlug(value: string, budget: number): string {
   const tokens = (value || "")
     .toLowerCase()
@@ -1314,6 +1318,8 @@ function shortSlug(value: string, budget: number): string {
   let slug = "";
 
   for (const token of tokens) {
+    if (slug && RELEASE_TAG.test(token)) break;
+
     const next = slug ? `${slug}-${token}` : token;
 
     if (slug && next.length > budget) break;
@@ -1325,6 +1331,10 @@ function shortSlug(value: string, budget: number): string {
 
   return slug;
 }
+
+/** Release tags that mark the end of a file's title. */
+const RELEASE_TAG =
+  /^(s\d+e\d+|s\d+|e\d+|\d+x\d+|episode\d+|\d+p|\d+k|x\d{3}|h\d{3}|hevc|avc|vp9|av1|webdl|webrip|web|dsnp|bluray|bdrip|dvdrip|hdtv|aac\d*|ac3|dts)$/i;
 
 function commonPrefix(names: string[]): string {
   if (names.length < 2) return names[0] ?? "";
