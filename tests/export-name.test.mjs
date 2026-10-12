@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { exportName } from "../src/lib/pixeldrain-extract.ts";
+
+const file = (filename) => ({
+  id: filename,
+  kind: "file",
+  host: "pixeldrain",
+  pageUrl: "",
+  directUrl: "",
+  foundOn: "https://fileditchfiles.st/beta38/x",
+  filename,
+  tool: "wget",
+});
+
+test("single-file exports use a short file-derived name", () => {
+  const items = [file("Dive.into.You.S01E02.1080p.DSNP.WEB-DL.AAC2.0.H.264-MrHulk.mkv")];
+  assert.equal(exportName(items, "https://fileditchfiles.st", "sh"), "dive-into-you-s01e02.sh");
+});
+
+test("multi-file exports use the common prefix and a plain count", () => {
+  const items = ["S01E01", "S01E02", "S01E03"].map((ep) =>
+    file(`Dive.into.You.${ep}.1080p.DSNP.WEB-DL.AAC2.0.H.264-MrHulk.mkv`),
+  );
+  assert.equal(exportName(items, "https://fileditchfiles.st", "sh"), "dive-into-you-3.sh");
+});
+
+test("export names stay short and never keep the full release title", () => {
+  const items = [file("Dive.into.You.S01E02.1080p.DSNP.WEB-DL.AAC2.0.H.264-MrHulk.mkv")];
+  const name = exportName(items, "https://fileditchfiles.st", "sh");
+  assert.ok(name.length <= 26, `name too long: ${name}`);
+  assert.ok(!name.includes("1080p"), `name keeps quality tags: ${name}`);
+});
