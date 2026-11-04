@@ -34,7 +34,8 @@ function isDownload(value: string): boolean {
       !url.password &&
       (((host === "dlproxy.uk" || host.endsWith(".dlproxy.uk")) &&
         url.pathname.startsWith("/download/")) ||
-        (/^fs\d*\.filekeeper\.net$/.test(host) && url.pathname.startsWith("/d/")))
+        (/^fs\d*\.filekeeper\.net$/.test(host) && url.pathname.startsWith("/d/")) ||
+        (/^[a-z0-9-]+\.fetchio\.cc$/.test(host) && url.pathname.startsWith("/f/")))
     );
   } catch {
     return false;
