@@ -341,6 +341,7 @@ def is_download(target):
             and (
                 ((host=="dlproxy.uk" or host.endswith(".dlproxy.uk")) and p.path.startswith("/download/"))
                 or (re.fullmatch(r"fs[0-9]*[.]filekeeper[.]net",host) is not None and p.path.startswith("/d/"))
+                or (re.fullmatch(r"[a-z0-9-]+[.]fetchio[.]cc",host) is not None and p.path.startswith("/f/"))
             )
         )
     except ValueError:
@@ -1361,7 +1362,8 @@ function isResolvedFileKeeperUrl(item: PixeldrainItem): boolean {
       url.protocol === "https:" &&
       (((host === "dlproxy.uk" || host.endsWith(".dlproxy.uk")) &&
         url.pathname.startsWith("/download/")) ||
-        (/^fs\d*\.filekeeper\.net$/.test(host) && url.pathname.startsWith("/d/")))
+        (/^fs\d*\.filekeeper\.net$/.test(host) && url.pathname.startsWith("/d/")) ||
+        (/^[a-z0-9-]+\.fetchio\.cc$/.test(host) && url.pathname.startsWith("/f/")))
     );
   } catch {
     return false;
