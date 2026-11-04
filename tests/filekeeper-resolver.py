@@ -106,6 +106,8 @@ class CountdownTests(unittest.TestCase):
             with self.subTest(action=action), self.assertRaisesRegex(SystemExit, "cross-origin"):
                 namespace["form_request"](page_url, dict(form, action=action), button)
         self.assertFalse(namespace["is_download"]("https://dlproxy.uk.evil.example/download/token"))
+        self.assertTrue(namespace["is_download"]("https://edge01.fetchio.cc/f/token?sig=abc"))
+        self.assertFalse(namespace["is_download"]("https://fetchio.cc.evil.example/f/token"))
 
     def test_initial_form_countdown_post_and_wget_handoff(self):
         initial = '<form action="/download" method="post"><input name="op" value="download1"><input name="id" value="example12345"><button name="method_free" value="Free download">Free download</button></form>'
